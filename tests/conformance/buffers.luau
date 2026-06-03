@@ -178,6 +178,87 @@ end
 
 simple_copy_ops()
 
+local function simple_bitwise_ops()
+  local native_check = is_native_if_supported()
+
+  -- xor of known words
+  local a = buffer.create(8)
+  local b = buffer.create(8)
+  buffer.writeu32(a, 0, 0xdeadbeef)
+  buffer.writeu32(a, 4, 0x01020304)
+  buffer.writeu32(b, 0, 0xffffffff)
+  buffer.writeu32(b, 4, 0x0a0b0c0d)
+  buffer.bxor(a, 0, b, 0, 8)
+  assert(buffer.readu32(a, 0) == bit32.bxor(0xdeadbeef, 0xffffffff))
+  assert(buffer.readu32(a, 4) == bit32.bxor(0x01020304, 0x0a0b0c0d))
+
+  -- full self-alias zeroes the region
+  local c = buffer.create(40)
+  for i = 0, 39 do buffer.writeu8(c, i, (i * 7 + 1) % 256) end
+  buffer.bxor(c, 0, c, 0, 40)
+  for i = 0, 39 do assert(buffer.readu8(c, i) == 0) end
+
+  -- offsets and an explicit count that crosses the 16 and 32 byte SIMD boundaries
+  local d = buffer.create(100)
+  local e = buffer.create(100)
+  local ref = buffer.create(100)
+  for i = 0, 99 do
+    buffer.writeu8(d, i, (i * 31 + 5) % 256)
+    buffer.writeu8(e, i, (i * 17 + 200) % 256)
+  end
+  buffer.copy(ref, 0, d, 0, 100)
+  for i = 0, 89 do
+    buffer.writeu8(ref, 7 + i, bit32.bxor(buffer.readu8(ref, 7 + i), buffer.readu8(e, 3 + i)))
+  end
+  buffer.bxor(d, 7, e, 3, 90)
+  for i = 0, 99 do assert(buffer.readu8(d, i) == buffer.readu8(ref, i)) end
+
+  -- count defaults to the rest of the source
+  local f = buffer.create(64)
+  local g = buffer.create(64)
+  local fref = buffer.create(64)
+  for i = 0, 63 do
+    buffer.writeu8(f, i, (i + 1) % 256)
+    buffer.writeu8(g, i, (i * 3) % 256)
+  end
+  buffer.copy(fref, 0, f, 0, 64)
+  for i = 0, 39 do
+    buffer.writeu8(fref, i, bit32.bxor(buffer.readu8(fref, i), buffer.readu8(g, 24 + i)))
+  end
+  buffer.bxor(f, 0, g, 24)
+  for i = 0, 63 do assert(buffer.readu8(f, i) == buffer.readu8(fref, i)) end
+
+  -- band and bor against scalar references, across a size that crosses the SIMD boundaries
+  local p = buffer.create(70)
+  local q = buffer.create(70)
+  for i = 0, 69 do
+    buffer.writeu8(p, i, (i * 13 + 7) % 256)
+    buffer.writeu8(q, i, (i * 29 + 100) % 256)
+  end
+  local pa = buffer.create(70)
+  local po = buffer.create(70)
+  buffer.copy(pa, 0, p, 0, 70)
+  buffer.copy(po, 0, p, 0, 70)
+  buffer.band(pa, 0, q, 0, 70)
+  buffer.bor(po, 0, q, 0, 70)
+  for i = 0, 69 do
+    assert(buffer.readu8(pa, i) == bit32.band(buffer.readu8(p, i), buffer.readu8(q, i)))
+    assert(buffer.readu8(po, i) == bit32.bor(buffer.readu8(p, i), buffer.readu8(q, i)))
+  end
+
+  -- bnot complements in place, applying it twice restores the data
+  local r = buffer.create(70)
+  buffer.copy(r, 0, p, 0, 70)
+  buffer.bnot(r, 0, 70)
+  for i = 0, 69 do assert(buffer.readu8(r, i) == bit32.band(bit32.bnot(buffer.readu8(p, i)), 0xff)) end
+  buffer.bnot(r, 0)
+  for i = 0, 69 do assert(buffer.readu8(r, i) == buffer.readu8(p, i)) end
+
+  assert(not native_check or is_native_if_supported())
+end
+
+simple_bitwise_ops()
+
 -- bounds checking
 
 local function createchecks()
@@ -271,6 +352,16 @@ local function boundchecks()
   assert(ecall(function() buffer.copy(b, 30, b, -1, 10) end) == "buffer access out of bounds")
   assert(ecall(function() buffer.copy(b, 30, b, -10, 10) end) == "buffer access out of bounds")
   assert(ecall(function() buffer.copy(b, 30, b, -100000, 10) end) == "buffer access out of bounds")
+
+  -- bitwise ops (same bounds rules as copy)
+  assert(ecall(function() buffer.bxor(b, 30, b, 200, 1000) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.bxor(b, 30, b, 200, -5) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.bxor(b, 825, b, 200, 200) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.bxor(b, -1, b, 200, 10) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.band(b, 30, b, 200, 1000) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.bor(b, 30, b, 200, 1000) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.bnot(b, 30, 1000) end) == "buffer access out of bounds")
+  assert(ecall(function() buffer.bnot(b, -1, 10) end) == "buffer access out of bounds")
 
   local b2 = buffer.create(1024)
   assert(ecall(function() buffer.copy(b, -200, b, 200, 200) end) == "buffer access out of bounds")

@@ -12,6 +12,13 @@ LUAU_FASTFLAG(LuauIntegerLibrary)
 
 #include <string.h>
 
+#ifdef LUAU_TARGET_AVX2
+#include <immintrin.h>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
+#endif
+
 // while C API returns 'size_t' for binary compatibility in case of future extensions,
 // in the current implementation, length and offset are limited to 31 bits
 // because offset is limited to an integer, a single 64bit comparison can be used and will not overflow
@@ -287,6 +294,236 @@ static int buffer_fill(lua_State* L)
     return 0;
 }
 
+// Element-wise bitwise combinations of byte ranges, performed in place: dst[i] = op(dst[i], src[i]).
+// The wide registers live only inside these kernels, the data stays in buffer memory. SSE2 is part of the
+// x86-64 baseline and AVX2 is detected at runtime, with a portable scalar fallback that also handles the
+// sub-register tail. Each operation is a small tag supplying the combine at every width.
+#ifdef LUAU_TARGET_AVX2
+static bool buffer_hasavx2()
+{
+#if defined(_MSC_VER)
+    int info1[4] = {};
+    __cpuid(info1, 1);
+
+    // both OSXSAVE (bit 27) and AVX (bit 28) must be set before any YMM state can be touched
+    if ((info1[2] & (1 << 27)) == 0 || (info1[2] & (1 << 28)) == 0)
+        return false;
+
+    // the OS must have enabled saving of XMM (bit 1) and YMM (bit 2) register state
+    if ((_xgetbv(0) & 0x6) != 0x6)
+        return false;
+
+    int info7[4] = {};
+    __cpuidex(info7, 7, 0);
+
+    // AVX2 is reported in leaf 7, EBX bit 5
+    return (info7[1] & (1 << 5)) != 0;
+#else
+    return __builtin_cpu_supports("avx2");
+#endif
+}
+#endif
+
+struct buffer_op_xor
+{
+    static unsigned char byte(unsigned char a, unsigned char b) { return a ^ b; }
+    static uint64_t word(uint64_t a, uint64_t b) { return a ^ b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i a, __m128i b) { return _mm_xor_si128(a, b); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i a, __m256i b) { return _mm256_xor_si256(a, b); }
+#endif
+};
+
+struct buffer_op_and
+{
+    static unsigned char byte(unsigned char a, unsigned char b) { return a & b; }
+    static uint64_t word(uint64_t a, uint64_t b) { return a & b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i a, __m128i b) { return _mm_and_si128(a, b); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i a, __m256i b) { return _mm256_and_si256(a, b); }
+#endif
+};
+
+struct buffer_op_or
+{
+    static unsigned char byte(unsigned char a, unsigned char b) { return a | b; }
+    static uint64_t word(uint64_t a, uint64_t b) { return a | b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i a, __m128i b) { return _mm_or_si128(a, b); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i a, __m256i b) { return _mm256_or_si256(a, b); }
+#endif
+};
+
+template<typename Op>
+static void buffer_binop_scalar(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 8 <= len; i += 8)
+    {
+        uint64_t d, s;
+        memcpy(&d, dst + i, 8);
+        memcpy(&s, src + i, 8);
+        d = Op::word(d, s);
+        memcpy(dst + i, &d, 8);
+    }
+
+    for (; i < len; i++)
+        dst[i] = char(Op::byte((unsigned char)dst[i], (unsigned char)src[i]));
+}
+
+#ifdef LUAU_TARGET_AVX2
+template<typename Op>
+LUAU_TARGET_AVX2 static void buffer_binop_avx2(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(dst + i));
+        __m256i s = _mm256_loadu_si256((const __m256i*)(src + i));
+        _mm256_storeu_si256((__m256i*)(dst + i), Op::wide(d, s));
+    }
+
+    buffer_binop_scalar<Op>(dst + i, src + i, len - i);
+}
+
+template<typename Op>
+static void buffer_binop_sse2(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128i d = _mm_loadu_si128((const __m128i*)(dst + i));
+        __m128i s = _mm_loadu_si128((const __m128i*)(src + i));
+        _mm_storeu_si128((__m128i*)(dst + i), Op::half(d, s));
+    }
+
+    buffer_binop_scalar<Op>(dst + i, src + i, len - i);
+}
+#endif
+
+template<typename Op>
+static void buffer_binop_bytes(char* dst, const char* src, unsigned len)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+
+    if (hasavx2)
+        buffer_binop_avx2<Op>(dst, src, len);
+    else
+        buffer_binop_sse2<Op>(dst, src, len);
+#else
+    buffer_binop_scalar<Op>(dst, src, len);
+#endif
+}
+
+template<typename Op>
+static int buffer_binop(lua_State* L)
+{
+    size_t tlen = 0;
+    void* tbuf = luaL_checkbuffer(L, 1, &tlen);
+    int toffset = luaL_checkinteger(L, 2);
+
+    size_t slen = 0;
+    void* sbuf = luaL_checkbuffer(L, 3, &slen);
+    int soffset = luaL_optinteger(L, 4, 0);
+
+    int size = luaL_optinteger(L, 5, int(slen) - soffset);
+
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+
+    if (isoutofbounds(soffset, slen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    if (isoutofbounds(toffset, tlen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_binop_bytes<Op>((char*)tbuf + toffset, (const char*)sbuf + soffset, unsigned(size));
+    return 0;
+}
+
+// Bitwise complement in place: dst[i] = ~dst[i]. The wide path xors against an all-ones register.
+static void buffer_bnot_scalar(char* dst, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 8 <= len; i += 8)
+    {
+        uint64_t d;
+        memcpy(&d, dst + i, 8);
+        d = ~d;
+        memcpy(dst + i, &d, 8);
+    }
+
+    for (; i < len; i++)
+        dst[i] = char(~(unsigned char)dst[i]);
+}
+
+#ifdef LUAU_TARGET_AVX2
+LUAU_TARGET_AVX2 static void buffer_bnot_avx2(char* dst, unsigned len)
+{
+    unsigned i = 0;
+    __m256i ones = _mm256_set1_epi8((char)0xff);
+
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(dst + i));
+        _mm256_storeu_si256((__m256i*)(dst + i), _mm256_xor_si256(d, ones));
+    }
+
+    buffer_bnot_scalar(dst + i, len - i);
+}
+
+static void buffer_bnot_sse2(char* dst, unsigned len)
+{
+    unsigned i = 0;
+    __m128i ones = _mm_set1_epi8((char)0xff);
+
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128i d = _mm_loadu_si128((const __m128i*)(dst + i));
+        _mm_storeu_si128((__m128i*)(dst + i), _mm_xor_si128(d, ones));
+    }
+
+    buffer_bnot_scalar(dst + i, len - i);
+}
+#endif
+
+static void buffer_bnot_bytes(char* dst, unsigned len)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+
+    if (hasavx2)
+        buffer_bnot_avx2(dst, len);
+    else
+        buffer_bnot_sse2(dst, len);
+#else
+    buffer_bnot_scalar(dst, len);
+#endif
+}
+
+static int buffer_bnot(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+
+    int size = luaL_optinteger(L, 3, int(len) - offset);
+
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+
+    if (isoutofbounds(offset, len, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_bnot_bytes((char*)buf + offset, unsigned(size));
+    return 0;
+}
+
 static int buffer_readbits(lua_State* L)
 {
     size_t len = 0;
@@ -393,6 +630,10 @@ static const luaL_Reg bufferlib[] = {
     {"len", buffer_len},
     {"copy", buffer_copy},
     {"fill", buffer_fill},
+    {"bxor", buffer_binop<buffer_op_xor>},
+    {"band", buffer_binop<buffer_op_and>},
+    {"bor", buffer_binop<buffer_op_or>},
+    {"bnot", buffer_bnot},
     {"readbits", buffer_readbits},
     {"writebits", buffer_writebits},
     {"readinteger", buffer_readlong},
@@ -425,6 +666,10 @@ static const luaL_Reg bufferlib_NOINTEGER[] = {
     {"len", buffer_len},
     {"copy", buffer_copy},
     {"fill", buffer_fill},
+    {"bxor", buffer_binop<buffer_op_xor>},
+    {"band", buffer_binop<buffer_op_and>},
+    {"bor", buffer_binop<buffer_op_or>},
+    {"bnot", buffer_bnot},
     {"readbits", buffer_readbits},
     {"writebits", buffer_writebits},
     {NULL, NULL},

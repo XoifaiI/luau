@@ -32,6 +32,24 @@
 #endif
 #endif
 
+// buffer.bxor selects an AVX2 path at runtime; like the SSE4.1 case above the target attribute lets the
+// AVX2 helper compile when AVX2 is not part of the baseline compiler settings. The macro is defined
+// whenever the AVX2 intrinsics can be compiled on x86-64 (empty when no attribute is needed), and its
+// presence is what gates the x86 SIMD code. SSE2 is part of the x86-64 baseline and needs no attribute.
+#if defined(__x86_64__) || defined(_M_X64)
+#if defined(_MSC_VER) && !defined(__clang__)
+#define LUAU_TARGET_AVX2
+#elif defined(__GNUC__) && defined(__has_attribute)
+#if __has_attribute(target)
+#if defined(__AVX2__)
+#define LUAU_TARGET_AVX2
+#else
+#define LUAU_TARGET_AVX2 __attribute__((target("avx2")))
+#endif
+#endif
+#endif
+#endif
+
 // Used on functions that have a printf-like interface to validate them statically
 #if defined(__GNUC__)
 #define LUA_PRINTF_ATTR(fmt, arg) __attribute__((format(printf, fmt, arg)))
