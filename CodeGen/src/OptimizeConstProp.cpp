@@ -2325,8 +2325,6 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             }
             else
             {
-                if (b == LUA_TSIMD || tag == LUA_TSIMD)
-                    fprintf(stderr, "[CHECKTAG-CONFLICT] tag=%d b=%d (LUA_TSIMD=%d)\n", int(tag), int(b), int(LUA_TSIMD));
                 replace(function, block, index, {IrCmd::JUMP, {OP_C(inst)}}); // Shows a conflict in assumptions on this path
             }
         }

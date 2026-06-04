@@ -1727,8 +1727,10 @@ static BuiltinImplResult translateBuiltinBufferWriteSimd(IrBuilder& build, int n
 
     build.loadAndCheckTag(arg3, LUA_TSIMD, build.vmExit(pcpos));
 
+    // The written value (arg3) is a SIMD object, validated above; pass nparams=2 so the shared buffer
+    // argument helper only checks the buffer and numeric offset and does NOT re-check arg3 as a number.
     IrOp buf, intIndex;
-    translateBufferArgsAndCheckBounds(build, nparams, arg, args, arg3, 16, pcpos, buf, intIndex, false);
+    translateBufferArgsAndCheckBounds(build, 2, arg, args, arg3, 16, pcpos, buf, intIndex, false);
 
     IrOp value = build.inst(IrCmd::LOAD_SIMD, arg3);
     build.inst(IrCmd::BUFFER_WRITESIMD, buf, intIndex, value, build.constTag(LUA_TBUFFER));
