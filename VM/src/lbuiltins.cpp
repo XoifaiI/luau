@@ -2760,6 +2760,7 @@ const luau_FastFunction luauF_table[256] = {
     luauF_missing, // LBF_SIMD_FMA
     luauF_missing, // LBF_SIMD_TOFLOAT
     luauF_missing, // LBF_SIMD_TOINT
+    luauF_missing, // LBF_SIMD_SHUFFLE
 
 // When adding builtins, add them above this line; what follows is 64 "dummy" entries with luauF_missing fallback.
 // This is important so that older versions of the runtime that don't support newer builtins automatically fall back via luauF_missing.

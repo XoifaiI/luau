@@ -805,6 +805,7 @@ struct TypeMapVisitor : AstVisitor
             case LBF_SIMD_FMA:
             case LBF_SIMD_TOFLOAT:
             case LBF_SIMD_TOINT:
+            case LBF_SIMD_SHUFFLE:
                 break;
             case LBF_MATH_ABS:
             case LBF_MATH_ACOS:

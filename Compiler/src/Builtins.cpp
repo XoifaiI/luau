@@ -307,6 +307,8 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_TOFLOAT;
         if (builtin.method == "toint")
             return LBF_SIMD_TOINT;
+        if (builtin.method == "shuffle")
+            return LBF_SIMD_SHUFFLE;
     }
 
     if (builtin.object == "vector")
@@ -730,6 +732,8 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD_TOFLOAT:
     case LBF_SIMD_TOINT:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_SIMD_SHUFFLE:
+        return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_FMA:
         return {3, 1, BuiltinInfo::Flag_NoneSafe};
 

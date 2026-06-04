@@ -3566,6 +3566,10 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
         build.vcvttps2dq(inst.regX64, regOp(OP_A(inst)));
         break;
+    case IrCmd::SHUFFLE_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+        build.vpshufd(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
+        break;
     case IrCmd::FMA_SIMD:
     {
         if ((build.features & Feature_FMA3) != 0)

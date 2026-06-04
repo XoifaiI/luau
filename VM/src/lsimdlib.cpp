@@ -212,6 +212,23 @@ static int simd_toint(lua_State* L)
     return 1;
 }
 
+static int simd_shuffle(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    int control = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(control) < 256, 2, "shuffle selector out of range [0, 255]");
+
+    // vpshufd semantics: lane i of the result is lane ((control >> (i*2)) & 3) of the source
+    uint32_t src[4];
+    for (int i = 0; i < 4; i++)
+        src[i] = a[i];
+
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 4; i++)
+        r[i] = src[(control >> (i * 2)) & 3];
+    return 1;
+}
+
 static int simd_fcreate(lua_State* L)
 {
     uint32_t* r = lua_newsimd(L);
@@ -259,6 +276,7 @@ static const luaL_Reg simdlib[] = {
     {"fma", simd_fma},
     {"tofloat", simd_tofloat},
     {"toint", simd_toint},
+    {"shuffle", simd_shuffle},
     {"fcreate", simd_fcreate},
     {"fextract", simd_fextract},
     {NULL, NULL},

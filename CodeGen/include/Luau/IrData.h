@@ -1105,6 +1105,10 @@ enum class IrCmd : uint8_t
     TOFLOAT_SIMD,
     TOINT_SIMD,
 
+    // Lane shuffle of a SIMD value by an immediate selector (vpshufd control byte)
+    // A: TValue (simd lane data), B: int (selector 0-255)
+    SHUFFLE_SIMD,
+
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer
     // B: protoid

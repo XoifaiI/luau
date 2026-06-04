@@ -1806,6 +1806,26 @@ static BuiltinImplResult translateBuiltinSimdShift(IrBuilder& build, IrCmd cmd, 
     return {BuiltinImplType::Full, 1};
 }
 
+static BuiltinImplResult translateBuiltinSimdShuffle(IrBuilder& build, int nparams, int ra, int arg, IrOp args, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    // the lane selector must be a compile-time integer constant in [0, 255] for the immediate lane shuffle,
+    // otherwise the call falls back to the simd library which handles a runtime selector
+    std::optional<double> control = build.function.asDoubleOp(args);
+    if (!control || *control < 0.0 || *control >= 256.0 || double(int(*control)) != *control)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD, build.vmReg(arg));
+    IrOp result = build.inst(IrCmd::SHUFFLE_SIMD, a, build.constInt(int(*control)));
+    build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
 BuiltinImplResult translateBuiltin(
     IrBuilder& build,
     int bfid,
@@ -2091,6 +2111,8 @@ BuiltinImplResult translateBuiltin(
         return translateBuiltinSimdUnary(build, IrCmd::TOINT_SIMD, nparams, ra, arg, nresults, pcpos);
     case LBF_SIMD_FMA:
         return translateBuiltinSimdFma(build, nparams, ra, arg, args, arg3, nresults, pcpos);
+    case LBF_SIMD_SHUFFLE:
+        return translateBuiltinSimdShuffle(build, nparams, ra, arg, args, nresults, pcpos);
     case LBF_VECTOR_MAGNITUDE:
         return translateBuiltinVectorMagnitude(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_VECTOR_NORMALIZE:

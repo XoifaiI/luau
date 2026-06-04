@@ -349,6 +349,7 @@ declare simd: {
     fma: @checked (a: simd, b: simd, c: simd) -> simd,
     tofloat: @checked (a: simd) -> simd,
     toint: @checked (a: simd) -> simd,
+    shuffle: @checked (v: simd, control: number) -> simd,
     fcreate: @checked (a: number, b: number, c: number, d: number) -> simd,
     fextract: @checked (v: simd, index: number) -> number,
 }

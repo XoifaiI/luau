@@ -581,6 +581,8 @@ const char* getCmdName(IrCmd cmd)
         return "TOFLOAT_SIMD";
     case IrCmd::TOINT_SIMD:
         return "TOINT_SIMD";
+    case IrCmd::SHUFFLE_SIMD:
+        return "SHUFFLE_SIMD";
     case IrCmd::JUMP_CMP_PROTOID:
         return "JUMP_CMP_PROTOID";
     }

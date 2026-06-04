@@ -3709,6 +3709,7 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     case IrCmd::FMA_SIMD:
     case IrCmd::TOFLOAT_SIMD:
     case IrCmd::TOINT_SIMD:
+    case IrCmd::SHUFFLE_SIMD:
         error = true;
         break;
 

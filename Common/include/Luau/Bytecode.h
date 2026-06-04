@@ -759,6 +759,7 @@ enum LuauBuiltinFunction
     LBF_SIMD_FMA,
     LBF_SIMD_TOFLOAT,
     LBF_SIMD_TOINT,
+    LBF_SIMD_SHUFFLE,
 };
 
 // Capture type, used in LOP_CAPTURE

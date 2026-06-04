@@ -437,6 +437,7 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::FMA_SIMD:
     case IrCmd::TOFLOAT_SIMD:
     case IrCmd::TOINT_SIMD:
+    case IrCmd::SHUFFLE_SIMD:
         return IrValueKind::Simd;
     case IrCmd::BUFFER_WRITESIMD:
     case IrCmd::STORE_SIMD:
