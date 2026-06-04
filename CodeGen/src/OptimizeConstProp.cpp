@@ -2044,6 +2044,37 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
         }
         break;
     case IrCmd::STORE_TVALUE:
+        // A compiler-emitted MOVE of a SIMD local lowers to LOAD_TVALUE Rsrc + STORE_TVALUE Rdst. When Rsrc is
+        // provably a SIMD value, rewrite this whole-TValue copy as a SIMD-kind copy (LOAD_SIMD + STORE_SIMD) so the
+        // lane data flows in registers and the implied box (at Rsrc) and unbox (at Rdst) are removed by forwarding.
+        if (OP_A(inst).kind == IrOpKind::VmReg && OP_B(inst).kind == IrOpKind::Inst)
+        {
+            uint32_t srcIdx = OP_B(inst).index;
+            IrInst& src = function.instructions[srcIdx];
+
+            if (src.cmd == IrCmd::LOAD_TVALUE && OP_A(src).kind == IrOpKind::VmReg && src.useCount == 1 &&
+                srcIdx >= block.start && state.tryGetTag(OP_A(src)) == LUA_TSIMD)
+            {
+                IrOp dstReg = OP_A(inst);
+
+                // Convert the load into LOAD_SIMD and forward it to the producing STORE_SIMD's lane data
+                replace(function, block, srcIdx, IrInst{IrCmd::LOAD_SIMD, {OP_A(src)}});
+                state.substituteOrRecordVmRegLoad(function.instructions[srcIdx]);
+
+                // Resolve through any substitution so we never store a chained SUBSTITUTE operand
+                IrOp srcOp = function.instructions[srcIdx].cmd == IrCmd::SUBSTITUTE
+                    ? OP_A(function.instructions[srcIdx])
+                    : IrOp{IrOpKind::Inst, srcIdx};
+
+                replace(function, block, index, IrInst{IrCmd::STORE_SIMD, {dstReg, srcOp}});
+
+                state.invalidate(dstReg);
+                state.saveTag(dstReg, LUA_TSIMD);
+                state.forwardVmRegStoreToLoad(function.instructions[index], IrCmd::LOAD_SIMD);
+                break;
+            }
+        }
+
         if (OP_A(inst).kind == IrOpKind::VmReg || OP_A(inst).kind == IrOpKind::Inst)
         {
             if (OP_A(inst).kind == IrOpKind::VmReg)
