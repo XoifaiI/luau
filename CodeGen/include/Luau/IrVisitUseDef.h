@@ -9,6 +9,77 @@ namespace Luau
 namespace CodeGen
 {
 
+// Whether visitVmRegDefsUses models this command's VM-register defs/uses. Commands that return false either touch
+// no VM registers or are only read for guards/branches; callers use this to skip them safely during escape analysis.
+inline bool visitorModelsVmRegDefsUses(IrCmd cmd)
+{
+    switch (cmd)
+    {
+    case IrCmd::LOAD_TAG:
+    case IrCmd::LOAD_POINTER:
+    case IrCmd::LOAD_DOUBLE:
+    case IrCmd::LOAD_INT:
+    case IrCmd::LOAD_INT64:
+    case IrCmd::LOAD_FLOAT:
+    case IrCmd::LOAD_TVALUE:
+    case IrCmd::LOAD_SIMD:
+    case IrCmd::STORE_TAG:
+    case IrCmd::STORE_EXTRA:
+    case IrCmd::STORE_POINTER:
+    case IrCmd::STORE_DOUBLE:
+    case IrCmd::STORE_INT:
+    case IrCmd::STORE_INT64:
+    case IrCmd::STORE_VECTOR:
+    case IrCmd::STORE_TVALUE:
+    case IrCmd::STORE_SPLIT_TVALUE:
+    case IrCmd::STORE_SIMD:
+    case IrCmd::CMP_ANY:
+    case IrCmd::CMP_TAG:
+    case IrCmd::JUMP_IF_TRUTHY:
+    case IrCmd::JUMP_IF_FALSY:
+    case IrCmd::JUMP_EQ_TAG:
+    case IrCmd::DO_ARITH:
+    case IrCmd::GET_TABLE:
+    case IrCmd::SET_TABLE:
+    case IrCmd::DO_LEN:
+    case IrCmd::GET_CACHED_IMPORT:
+    case IrCmd::CONCAT:
+    case IrCmd::GET_UPVALUE:
+    case IrCmd::SET_UPVALUE:
+    case IrCmd::INTERRUPT:
+    case IrCmd::BARRIER_OBJ:
+    case IrCmd::BARRIER_TABLE_FORWARD:
+    case IrCmd::CLOSE_UPVALS:
+    case IrCmd::CAPTURE:
+    case IrCmd::SETLIST:
+    case IrCmd::CALL:
+    case IrCmd::RETURN:
+    case IrCmd::FASTCALL:
+    case IrCmd::INVOKE_FASTCALL:
+    case IrCmd::FORGLOOP:
+    case IrCmd::FORGLOOP_FALLBACK:
+    case IrCmd::FORGPREP_XNEXT_FALLBACK:
+    case IrCmd::FALLBACK_GETGLOBAL:
+    case IrCmd::FALLBACK_SETGLOBAL:
+    case IrCmd::FALLBACK_GETTABLEKS:
+    case IrCmd::FALLBACK_SETTABLEKS:
+    case IrCmd::FALLBACK_NAMECALL:
+    case IrCmd::FALLBACK_PREPVARARGS:
+    case IrCmd::FALLBACK_GETVARARGS:
+    case IrCmd::FALLBACK_DUPCLOSURE:
+    case IrCmd::FALLBACK_FORGPREP:
+    case IrCmd::ADJUST_STACK_TO_REG:
+    case IrCmd::ADJUST_STACK_TO_TOP:
+    case IrCmd::GET_TYPEOF:
+    case IrCmd::FINDUPVAL:
+    case IrCmd::MARK_USED:
+    case IrCmd::MARK_DEAD:
+        return true;
+    default:
+        return false;
+    }
+}
+
 template<typename T>
 static void visitVmRegDefsUses(T& visitor, IrFunction& function, IrInst& inst)
 {

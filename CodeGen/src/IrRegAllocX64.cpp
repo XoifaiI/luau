@@ -658,6 +658,10 @@ OperandX64 IrRegAllocX64::getRestoreAddress(const IrInst& inst, ValueRestoreLoca
         return restoreLocation.op.kind == IrOpKind::VmReg ? luauRegValue(vmRegOp(op)) : luauConstantValue(vmConstOp(op));
     case IrValueKind::Tvalue:
         return restoreLocation.op.kind == IrOpKind::VmReg ? luauReg(vmRegOp(op)) : luauConstant(vmConstOp(op));
+    case IrValueKind::Simd:
+    case IrValueKind::Simd256:
+        // SIMD values are register/spill-only and never carry a VM-slot restore location (see IrValueLocationTracking)
+        break;
     }
 
     CODEGEN_ASSERT(!"Failed to find restore operand location");

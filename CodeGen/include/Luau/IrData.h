@@ -1292,6 +1292,9 @@ struct IrInst
     // Location of the result (optional)
     X64::RegisterX64 regX64 = X64::noreg;
     A64::RegisterA64 regA64 = A64::noreg;
+    // High half for A64 IrValueKind::Simd256 values: NEON is 128-bit, so an 8-wide value lives in two q registers,
+    // regA64 holds the low 4 lanes and regA64Hi the high 4. Unused (noreg) for every other value kind and on x64.
+    A64::RegisterA64 regA64Hi = A64::noreg;
     bool reusedReg = false;
     bool spilled = false;
     bool needsReload = false;

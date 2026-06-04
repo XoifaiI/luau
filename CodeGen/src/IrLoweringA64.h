@@ -9,6 +9,7 @@
 #include "IrRegAllocA64.h"
 #include "IrValueLocationTracking.h"
 
+#include <array>
 #include <vector>
 
 namespace Luau
@@ -60,6 +61,8 @@ struct IrLoweringA64
 
     // May emit restore instructions
     RegisterA64 regOp(IrOp op);
+    // High half of a Simd256 operand (call regOp first, or this, to materialize/reload the pair)
+    RegisterA64 regOpHi(IrOp op);
 
     // Operand data lookup helpers
     IrConst constOp(IrOp op) const;
@@ -102,6 +105,9 @@ struct IrLoweringA64
 
     uint32_t exitSyncAllocToken = 0;
     uint32_t exitSyncInstIdx = kInvalidInstIdx;
+
+    // SIMD register slots whose box never escapes: STORE_SIMD can reuse the box in place instead of allocating
+    std::array<bool, 256> simdSlotReuse{};
 
     bool error = false;
 };

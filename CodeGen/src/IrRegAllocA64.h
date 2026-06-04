@@ -47,6 +47,9 @@ struct IrRegAllocA64
     RegisterA64 allocTemp(KindA64 kind);
     RegisterA64 allocReuse(KindA64 kind, uint32_t index, std::initializer_list<IrOp> oprefs);
 
+    // Allocate the two q registers an IrValueKind::Simd256 value occupies; returns the low half, writes the high half to hiOut
+    RegisterA64 allocReg256(uint32_t index, RegisterA64& hiOut);
+
     RegisterA64 takeReg(RegisterA64 reg, uint32_t index);
 
     void freeReg(RegisterA64 reg);
@@ -91,9 +94,16 @@ struct IrRegAllocA64
 
         RegisterA64 origin;
         int8_t slot;
+        // High-half original register for a spilled IrValueKind::Simd256 value (its lanes occupy a 4-dword slot:
+        // low q at `slot`, high q at `slot + 2`). noreg for every other value kind. Kept last so the existing
+        // positional Spill{inst, origin, slot} initializers stay valid.
+        RegisterA64 originHi = noreg;
     };
 
     void restore(const Spill& s, RegisterA64 reg);
+
+    // Reload a spilled IrValueKind::Simd256 value's two halves from its 4-dword slot into lo/hi
+    void restoreSimd256(const Spill& s, RegisterA64 lo, RegisterA64 hi);
 
     // Spills the selected register
     void spill(Set& set, uint32_t index, uint32_t targetInstIdx);

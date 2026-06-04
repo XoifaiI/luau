@@ -182,6 +182,23 @@ public:
     void bit(RegisterA64 dst, RegisterA64 src, RegisterA64 mask);
     void bif(RegisterA64 dst, RegisterA64 src, RegisterA64 mask);
 
+    // Vector integer and bitwise math (NEON, used by the 4-wide SIMD value type)
+    void add_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void sub_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void mul_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void and_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void orr_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void eor_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void not_16b(RegisterA64 dst, RegisterA64 src);
+    void shl_4s(RegisterA64 dst, RegisterA64 src, uint8_t shift);
+    void ushr_4s(RegisterA64 dst, RegisterA64 src, uint8_t shift);
+    void sri_4s(RegisterA64 dst, RegisterA64 src, uint8_t shift);
+    void rev32_8h(RegisterA64 dst, RegisterA64 src);
+    void scvtf_4s(RegisterA64 dst, RegisterA64 src);
+    void fcvtzs_4s(RegisterA64 dst, RegisterA64 src);
+    void fsqrt_4s(RegisterA64 dst, RegisterA64 src);
+    void tbl_16b(RegisterA64 dst, RegisterA64 src, RegisterA64 idx);
+
     // Floating-point rounding and conversions
     void frinta(RegisterA64 dst, RegisterA64 src);
     void frintm(RegisterA64 dst, RegisterA64 src);

@@ -1104,6 +1104,199 @@ void AssemblyBuilderA64::bif(RegisterA64 dst, RegisterA64 src, RegisterA64 mask)
     commit();
 }
 
+void AssemblyBuilderA64::add_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "add", dst.index, src1.index, src2.index);
+
+    //                Q U  ESz    Rm    Opcode Rn    Rd
+    uint32_t op = 0b0'1'0'01110'10'1'00000'10000'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::sub_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "sub", dst.index, src1.index, src2.index);
+
+    uint32_t op = 0b0'1'1'01110'10'1'00000'10000'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::mul_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "mul", dst.index, src1.index, src2.index);
+
+    uint32_t op = 0b0'1'0'01110'10'1'00000'10011'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::and_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.16b,v%d.16b,v%d.16b\n", "and", dst.index, src1.index, src2.index);
+
+    uint32_t op = 0b0'1'0'01110'00'1'00000'00011'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::orr_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.16b,v%d.16b,v%d.16b\n", "orr", dst.index, src1.index, src2.index);
+
+    uint32_t op = 0b0'1'0'01110'10'1'00000'00011'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::eor_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.16b,v%d.16b,v%d.16b\n", "eor", dst.index, src1.index, src2.index);
+
+    uint32_t op = 0b0'1'1'01110'00'1'00000'00011'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::not_16b(RegisterA64 dst, RegisterA64 src)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.16b,v%d.16b\n", "mvn", dst.index, src.index);
+
+    //                Q U          immb  opcode 10
+    uint32_t op = 0b0'1'1'01110'00'1'0000'00101'10'00000'00000;
+    place(dst.index | (src.index << 5) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::shl_4s(RegisterA64 dst, RegisterA64 src, uint8_t shift)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+    CODEGEN_ASSERT(shift >= 1 && shift <= 31);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,#%d\n", "shl", dst.index, src.index, shift);
+
+    // shift-by-immediate: immh:immb = esize + shift, .4s -> immh = 01xx
+    uint32_t immhb = uint32_t(32 + shift);
+    uint32_t op = 0b0'1'0'011110'0000000'01010'1'00000'00000;
+    place(dst.index | (src.index << 5) | (immhb << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::ushr_4s(RegisterA64 dst, RegisterA64 src, uint8_t shift)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+    CODEGEN_ASSERT(shift >= 1 && shift <= 31);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,#%d\n", "ushr", dst.index, src.index, shift);
+
+    // shift-by-immediate: immh:immb = 2*esize - shift, .4s -> immh = 01xx
+    uint32_t immhb = uint32_t(64 - shift);
+    uint32_t op = 0b0'1'1'011110'0000000'00000'1'00000'00000;
+    place(dst.index | (src.index << 5) | (immhb << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::sri_4s(RegisterA64 dst, RegisterA64 src, uint8_t shift)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+    CODEGEN_ASSERT(shift >= 1 && shift <= 31);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,#%d\n", "sri", dst.index, src.index, shift);
+
+    // shift-right-and-insert by immediate: immh:immb = 2*esize - shift, .4s -> immh = 01xx
+    uint32_t immhb = uint32_t(64 - shift);
+    uint32_t op = 0b0'1'1'011110'0000000'01000'1'00000'00000;
+    place(dst.index | (src.index << 5) | (immhb << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::rev32_8h(RegisterA64 dst, RegisterA64 src)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.8h,v%d.8h\n", "rev32", dst.index, src.index);
+
+    // reverse the two 16-bit halves within each 32-bit lane == rotate each u32 lane left by 16
+    uint32_t op = 0b0'1'1'01110'01'10000'00000'10'00000'00000;
+    place(dst.index | (src.index << 5) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::scvtf_4s(RegisterA64 dst, RegisterA64 src)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s\n", "scvtf", dst.index, src.index);
+
+    uint32_t op = 0b0'1'0'01110'00'10000'11101'10'00000'00000;
+    place(dst.index | (src.index << 5) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::fcvtzs_4s(RegisterA64 dst, RegisterA64 src)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s\n", "fcvtzs", dst.index, src.index);
+
+    uint32_t op = 0b0'1'0'01110'10'10000'11011'10'00000'00000;
+    place(dst.index | (src.index << 5) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::fsqrt_4s(RegisterA64 dst, RegisterA64 src)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s\n", "fsqrt", dst.index, src.index);
+
+    uint32_t op = 0b0'1'1'01110'10'10000'11111'10'00000'00000;
+    place(dst.index | (src.index << 5) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::tbl_16b(RegisterA64 dst, RegisterA64 src, RegisterA64 idx)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::q && idx.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.16b,{v%d.16b},v%d.16b\n", "tbl", dst.index, src.index, idx.index);
+
+    //                Q          Rm    len op    Rn    Rd
+    uint32_t op = 0b0'1'001110'000'00000'0'00'0'00'00000'00000;
+    place(dst.index | (src.index << 5) | (idx.index << 16) | op);
+    commit();
+}
+
 void AssemblyBuilderA64::frinta(RegisterA64 dst, RegisterA64 src)
 {
     CODEGEN_ASSERT(dst.kind == src.kind);

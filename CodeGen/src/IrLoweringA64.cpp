@@ -4,6 +4,7 @@
 #include "Luau/DenseHash.h"
 #include "Luau/IrData.h"
 #include "Luau/IrUtils.h"
+#include "Luau/IrVisitUseDef.h"
 #include "Luau/LoweringStats.h"
 
 #include "EmitCommonA64.h"
@@ -303,6 +304,96 @@ IrLoweringA64::IrLoweringA64(AssemblyBuilderA64& build, ModuleHelpers& helpers, 
             self->regs.restoreReg(inst);
         }
     );
+
+    // Determine which SIMD register slots hold a box that never escapes (only LOAD_SIMD/STORE_SIMD touch them).
+    // A non-escaping slot can have its box reused in place by STORE_SIMD instead of allocating a new one.
+    struct SimdEscapeVisitor
+    {
+        std::array<bool, 256>& escapes;
+        void def(IrOp op, int offset = 0)
+        {
+            escapes[vmRegOp(op) + offset] = true;
+        }
+        void use(IrOp op, int offset = 0)
+        {
+            escapes[vmRegOp(op) + offset] = true;
+        }
+        void maybeDef(IrOp op)
+        {
+            if (op.kind == IrOpKind::VmReg)
+                escapes[vmRegOp(op)] = true;
+        }
+        void maybeUse(IrOp op)
+        {
+            if (op.kind == IrOpKind::VmReg)
+                escapes[vmRegOp(op)] = true;
+        }
+        void defRange(int start, int count)
+        {
+            int end = count == -1 ? 255 : start + count - 1;
+            for (int i = start; i <= end && i < 256; i++)
+                escapes[i] = true;
+        }
+        void useRange(int start, int count)
+        {
+            int end = count == -1 ? 255 : start + count - 1;
+            for (int i = start; i <= end && i < 256; i++)
+                escapes[i] = true;
+        }
+        void useVarargs(uint8_t start)
+        {
+            for (int i = start; i < 256; i++)
+                escapes[i] = true;
+        }
+        void capture(int reg)
+        {
+            escapes[reg] = true;
+        }
+    };
+
+    bool anySimdStore = false;
+    for (IrInst& inst : function.instructions)
+    {
+        if (inst.cmd == IrCmd::STORE_SIMD || inst.cmd == IrCmd::STORE_SIMD256)
+        {
+            anySimdStore = true;
+            break;
+        }
+    }
+
+    // Box reuse only matters for functions that produce SIMD values; skipping the rest avoids the analysis cost
+    // and keeps the visitor (which asserts on unhandled VM-register commands) off non-SIMD code paths.
+    if (anySimdStore)
+    {
+        std::array<bool, 256> escapes{};
+        std::array<bool, 256> hasSimdStore{};
+
+        for (IrInst& inst : function.instructions)
+        {
+            if (inst.cmd == IrCmd::NOP)
+                continue;
+
+            // LOAD_SIMD reads lane data and STORE_SIMD writes it: neither exposes the box as an aliasable TValue
+            if (inst.cmd == IrCmd::STORE_SIMD || inst.cmd == IrCmd::STORE_SIMD256)
+            {
+                if (OP_A(inst).kind == IrOpKind::VmReg)
+                    hasSimdStore[vmRegOp(OP_A(inst))] = true;
+                continue;
+            }
+            if (inst.cmd == IrCmd::LOAD_SIMD || inst.cmd == IrCmd::LOAD_SIMD256)
+                continue;
+
+            // Commands the visitor does not model only read registers for guards/branches and cannot escape a box.
+            if (!visitorModelsVmRegDefsUses(inst.cmd))
+                continue;
+
+            SimdEscapeVisitor visitor{escapes};
+            visitVmRegDefsUses(visitor, function, inst);
+        }
+
+        for (int i = 0; i < 256; i++)
+            simdSlotReuse[i] = hasSimdStore[i] && !escapes[i] && !function.cfg.captured.regs.test(i);
+    }
 }
 
 void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
@@ -3682,60 +3773,523 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         break;
     }
 
-    // The 4-wide SIMD value ops are only lowered on x64. On A64 we have no NEON lowering yet, so bail the whole
-    // function to the interpreter (which runs the simd.* / buffer.*u32x4 builtins via the C library). This keeps
-    // ARM clients correct; without it these instructions would be silently skipped or crash the register allocator.
+    // 4-wide SIMD value ops, lowered to NEON (128-bit q registers). The boxed value is a LUA_TSIMD GCObject
+    // whose lane data lives at offsetof(Simd, data); LOAD/STORE move between that box and a q register.
     case IrCmd::BUFFER_READSIMD:
+    {
+        inst.regA64 = regs.allocReg(KindA64::q, index);
+        AddressA64 addr = tempAddrBuffer(OP_A(inst), OP_B(inst), tagOp(OP_C(inst)));
+        build.ldr(inst.regA64, addr);
+        break;
+    }
     case IrCmd::BUFFER_WRITESIMD:
+    {
+        RegisterA64 temp = regOp(OP_C(inst));
+        AddressA64 addr = tempAddrBuffer(OP_A(inst), OP_B(inst), tagOp(OP_D(inst)));
+        build.str(temp, addr);
+        break;
+    }
     case IrCmd::LOAD_SIMD:
+    {
+        inst.regA64 = regs.allocReg(KindA64::q, index);
+        RegisterA64 ptr = regs.allocTemp(KindA64::x);
+        build.ldr(ptr, tempAddr(OP_A(inst), offsetof(TValue, value.gc)));
+        build.ldr(inst.regA64, mem(ptr, offsetof(Simd, data)));
+        break;
+    }
     case IrCmd::STORE_SIMD:
+    {
+        // The boxed-store helpers are C calls that clobber every vector register, so OP_B's lane data must be spilled
+        // across the call and reloaded after. The register allocator would otherwise drop OP_B at its last use (this
+        // instruction); extend its lifetime by one so spill() saves it reloadably to the native (GC-safe) stack, then
+        // restore the bookkeeping so end-of-instruction cleanup frees the reloaded register normally.
+        IrInst& valueInst = function.instOp(OP_B(inst));
+        uint32_t savedLastUse = valueInst.lastUse;
+        valueInst.lastUse = index + 1;
+
+        // For a slot whose box never escapes, reuse the existing box (or allocate one once) and overwrite its lane
+        // data in place. This avoids an allocation on every store, which is what makes loop-carried SIMD locals fast.
+        if (OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))])
+        {
+            regs.spill(index);
+            build.mov(x0, rState);
+            build.add(x1, rBase, uint16_t(vmRegOp(OP_A(inst)) * sizeof(TValue)));
+            build.ldr(x2, mem(rNativeContext, offsetof(NativeContext, luaSimd_storeReuse)));
+            build.blr(x2);
+
+            RegisterA64 obj = regs.takeReg(x0, kInvalidInstIdx);
+            build.str(regOp(OP_B(inst)), mem(obj, offsetof(Simd, data)));
+            regs.freeReg(obj);
+        }
+        else
+        {
+            // allocate a fresh boxed simd object, fill its lanes, then publish the box pointer and tag into the slot
+            regs.spill(index);
+            build.mov(x0, rState);
+            build.ldr(x1, mem(rNativeContext, offsetof(NativeContext, luaSimd_new)));
+            build.blr(x1);
+
+            RegisterA64 obj = regs.takeReg(x0, kInvalidInstIdx);
+            build.str(regOp(OP_B(inst)), mem(obj, offsetof(Simd, data)));
+            build.str(obj, tempAddr(OP_A(inst), offsetof(TValue, value)));
+
+            RegisterA64 tagTemp = regs.allocTemp(KindA64::w);
+            build.mov(tagTemp, LUA_TSIMD);
+            build.str(tagTemp, tempAddr(OP_A(inst), offsetof(TValue, tt)));
+            regs.freeReg(obj);
+        }
+
+        valueInst.lastUse = savedLastUse;
+        break;
+    }
     case IrCmd::ADD_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.add_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::SUB_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.sub_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::MUL_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.mul_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::AND_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.and_16b(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::OR_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.orr_16b(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::XOR_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.eor_16b(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::NOT_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+        build.not_16b(inst.regA64, regOp(OP_A(inst)));
+        break;
     case IrCmd::SHL_SIMD:
+    {
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+        RegisterA64 src = regOp(OP_A(inst));
+        if (n == 0)
+        {
+            if (inst.regA64 != src)
+                build.mov(inst.regA64, src);
+        }
+        else
+            build.shl_4s(inst.regA64, src, n);
+        break;
+    }
     case IrCmd::SHR_SIMD:
+    {
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+        RegisterA64 src = regOp(OP_A(inst));
+        if (n == 0)
+        {
+            if (inst.regA64 != src)
+                build.mov(inst.regA64, src);
+        }
+        else
+            build.ushr_4s(inst.regA64, src, n);
+        break;
+    }
     case IrCmd::ROTL_SIMD:
+    {
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+
+        if (n == 16)
+        {
+            // rotl by 16 swaps the two 16-bit halves of each lane: one rev32 instead of shift+shift+or
+            inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+            build.rev32_8h(inst.regA64, regOp(OP_A(inst)));
+            break;
+        }
+
+        // a fresh destination keeps the source intact: shl writes it, then sri reads the source again
+        inst.regA64 = regs.allocReg(KindA64::q, index);
+        RegisterA64 src = regOp(OP_A(inst));
+        if (n == 0)
+        {
+            build.mov(inst.regA64, src);
+        }
+        else
+        {
+            // rotl(x, n) = shl(x, n) with the low (32 - n) bits of (x >> (32 - n)) inserted via shift-right-insert
+            build.shl_4s(inst.regA64, src, n);
+            build.sri_4s(inst.regA64, src, uint8_t(32 - n));
+        }
+        break;
+    }
     case IrCmd::FADD_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fadd(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::FSUB_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fsub(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::FMUL_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fmul(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::FDIV_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fdiv(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::FMIN_SIMD:
+    {
+        // SSE vminps semantics: (a < b) ? a : b (returns b on equal/NaN), matched via fcmgt + select
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        RegisterA64 temp1 = regOp(OP_A(inst));
+        RegisterA64 temp2 = regOp(OP_B(inst));
+        RegisterA64 mask = regs.allocTemp(KindA64::q);
+
+        build.fcmgt_4s(mask, temp2, temp1);
+        if (inst.regA64 == temp1)
+        {
+            build.bif(inst.regA64, temp2, mask);
+        }
+        else
+        {
+            if (inst.regA64 != temp2)
+                build.mov(inst.regA64, temp2);
+            build.bit(inst.regA64, temp1, mask);
+        }
+        break;
+    }
     case IrCmd::FMAX_SIMD:
+    {
+        // SSE vmaxps semantics: (a > b) ? a : b
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        RegisterA64 temp1 = regOp(OP_A(inst));
+        RegisterA64 temp2 = regOp(OP_B(inst));
+        RegisterA64 mask = regs.allocTemp(KindA64::q);
+
+        build.fcmgt_4s(mask, temp1, temp2);
+        if (inst.regA64 == temp1)
+        {
+            build.bif(inst.regA64, temp2, mask);
+        }
+        else
+        {
+            if (inst.regA64 != temp2)
+                build.mov(inst.regA64, temp2);
+            build.bit(inst.regA64, temp1, mask);
+        }
+        break;
+    }
     case IrCmd::FSQRT_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+        build.fsqrt_4s(inst.regA64, regOp(OP_A(inst)));
+        break;
     case IrCmd::FMA_SIMD:
+    {
+        // fmla computes dst += src1 * src2, so start dst at C and fuse a*b into it (single rounding)
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_C(inst)});
+        RegisterA64 c = regOp(OP_C(inst));
+        if (inst.regA64 != c)
+            build.mov(inst.regA64, c);
+        build.fmla(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    }
     case IrCmd::TOFLOAT_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+        build.scvtf_4s(inst.regA64, regOp(OP_A(inst)));
+        break;
     case IrCmd::TOINT_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst)});
+        build.fcvtzs_4s(inst.regA64, regOp(OP_A(inst)));
+        break;
     case IrCmd::SHUFFLE_SIMD:
+    {
+        // vpshufd selects output lane i from input lane (control >> 2i) & 3; build the equivalent 16-byte tbl index
+        inst.regA64 = regs.allocReg(KindA64::q, index);
+        uint8_t control = uint8_t(intOp(OP_B(inst)));
+
+        uint8_t idx[16];
+        for (int i = 0; i < 4; i++)
+        {
+            int srcLane = (control >> (2 * i)) & 3;
+            for (int b = 0; b < 4; b++)
+                idx[i * 4 + b] = uint8_t(srcLane * 4 + b);
+        }
+
+        RegisterA64 idxReg = regs.allocTemp(KindA64::q);
+        RegisterA64 addr = regs.allocTemp(KindA64::x);
+        build.adr(addr, idx, sizeof(idx));
+        build.ldr(idxReg, addr);
+        build.tbl_16b(inst.regA64, regOp(OP_A(inst)), idxReg);
+        break;
+    }
+
+    // 8-wide (AVX2 ymm on x64) SIMD value ops, emulated on A64 as a PAIR of 128-bit NEON q registers (regA64 = low
+    // 4 lanes, regA64Hi = high 4 lanes). NEON has no 256-bit register, so every op is two of the 128-bit forms.
+    // There's no throughput edge over the 4-wide path on ARM; this keeps portable simd256 code native (not the
+    // interpreter) on ARM.
     case IrCmd::BUFFER_READSIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        AddressA64 lo = tempAddrBuffer(OP_A(inst), OP_B(inst), tagOp(OP_C(inst)));
+        RegisterA64 addr = regs.allocTemp(KindA64::x);
+        build.add(addr, lo.base, uint16_t(lo.data));
+        build.ldr(inst.regA64, mem(addr, 0));
+        build.ldr(hi, mem(addr, 16));
+        break;
+    }
     case IrCmd::BUFFER_WRITESIMD256:
+    {
+        RegisterA64 valLo = regOp(OP_C(inst));
+        RegisterA64 valHi = regOpHi(OP_C(inst));
+        AddressA64 lo = tempAddrBuffer(OP_A(inst), OP_B(inst), tagOp(OP_D(inst)));
+        RegisterA64 addr = regs.allocTemp(KindA64::x);
+        build.add(addr, lo.base, uint16_t(lo.data));
+        build.str(valLo, mem(addr, 0));
+        build.str(valHi, mem(addr, 16));
+        break;
+    }
     case IrCmd::LOAD_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 ptr = regs.allocTemp(KindA64::x);
+        build.ldr(ptr, tempAddr(OP_A(inst), offsetof(TValue, value.gc)));
+        build.ldr(inst.regA64, mem(ptr, offsetof(Simd, data)));
+        build.ldr(hi, mem(ptr, offsetof(Simd, data) + 16));
+        break;
+    }
     case IrCmd::STORE_SIMD256:
+    {
+        // Same shape as STORE_SIMD: extend OP_B's lifetime so both halves spill reloadably across the alloc call.
+        IrInst& valueInst = function.instOp(OP_B(inst));
+        uint32_t savedLastUse = valueInst.lastUse;
+        valueInst.lastUse = index + 1;
+
+        if (OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))])
+        {
+            regs.spill(index);
+            build.mov(x0, rState);
+            build.add(x1, rBase, uint16_t(vmRegOp(OP_A(inst)) * sizeof(TValue)));
+            build.ldr(x2, mem(rNativeContext, offsetof(NativeContext, luaSimd_storeReuse)));
+            build.blr(x2);
+
+            RegisterA64 obj = regs.takeReg(x0, kInvalidInstIdx);
+            build.str(regOp(OP_B(inst)), mem(obj, offsetof(Simd, data)));
+            build.str(regOpHi(OP_B(inst)), mem(obj, offsetof(Simd, data) + 16));
+            regs.freeReg(obj);
+        }
+        else
+        {
+            regs.spill(index);
+            build.mov(x0, rState);
+            build.ldr(x1, mem(rNativeContext, offsetof(NativeContext, luaSimd_new)));
+            build.blr(x1);
+
+            RegisterA64 obj = regs.takeReg(x0, kInvalidInstIdx);
+            build.str(regOp(OP_B(inst)), mem(obj, offsetof(Simd, data)));
+            build.str(regOpHi(OP_B(inst)), mem(obj, offsetof(Simd, data) + 16));
+            build.str(obj, tempAddr(OP_A(inst), offsetof(TValue, value)));
+
+            RegisterA64 tagTemp = regs.allocTemp(KindA64::w);
+            build.mov(tagTemp, LUA_TSIMD);
+            build.str(tagTemp, tempAddr(OP_A(inst), offsetof(TValue, tt)));
+            regs.freeReg(obj);
+        }
+
+        valueInst.lastUse = savedLastUse;
+        break;
+    }
     case IrCmd::ADD_SIMD256:
     case IrCmd::SUB_SIMD256:
     case IrCmd::AND_SIMD256:
     case IrCmd::OR_SIMD256:
     case IrCmd::XOR_SIMD256:
-    case IrCmd::NOT_SIMD256:
-    case IrCmd::SHL_SIMD256:
-    case IrCmd::SHR_SIMD256:
-    case IrCmd::ROTL_SIMD256:
-    case IrCmd::SHUFFLE_SIMD256:
     case IrCmd::FADD_SIMD256:
     case IrCmd::FSUB_SIMD256:
     case IrCmd::FMUL_SIMD256:
     case IrCmd::FDIV_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 aLo = regOp(OP_A(inst)), aHi = regOpHi(OP_A(inst));
+        RegisterA64 bLo = regOp(OP_B(inst)), bHi = regOpHi(OP_B(inst));
+
+        switch (inst.cmd)
+        {
+        case IrCmd::ADD_SIMD256: build.add_4s(inst.regA64, aLo, bLo); build.add_4s(hi, aHi, bHi); break;
+        case IrCmd::SUB_SIMD256: build.sub_4s(inst.regA64, aLo, bLo); build.sub_4s(hi, aHi, bHi); break;
+        case IrCmd::AND_SIMD256: build.and_16b(inst.regA64, aLo, bLo); build.and_16b(hi, aHi, bHi); break;
+        case IrCmd::OR_SIMD256: build.orr_16b(inst.regA64, aLo, bLo); build.orr_16b(hi, aHi, bHi); break;
+        case IrCmd::XOR_SIMD256: build.eor_16b(inst.regA64, aLo, bLo); build.eor_16b(hi, aHi, bHi); break;
+        case IrCmd::FADD_SIMD256: build.fadd(inst.regA64, aLo, bLo); build.fadd(hi, aHi, bHi); break;
+        case IrCmd::FSUB_SIMD256: build.fsub(inst.regA64, aLo, bLo); build.fsub(hi, aHi, bHi); break;
+        case IrCmd::FMUL_SIMD256: build.fmul(inst.regA64, aLo, bLo); build.fmul(hi, aHi, bHi); break;
+        case IrCmd::FDIV_SIMD256: build.fdiv(inst.regA64, aLo, bLo); build.fdiv(hi, aHi, bHi); break;
+        default: break;
+        }
+        break;
+    }
+    case IrCmd::NOT_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        build.not_16b(inst.regA64, regOp(OP_A(inst)));
+        build.not_16b(hi, regOpHi(OP_A(inst)));
+        break;
+    }
+    case IrCmd::FSQRT_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        build.fsqrt_4s(inst.regA64, regOp(OP_A(inst)));
+        build.fsqrt_4s(hi, regOpHi(OP_A(inst)));
+        break;
+    }
+    case IrCmd::TOFLOAT_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        build.scvtf_4s(inst.regA64, regOp(OP_A(inst)));
+        build.scvtf_4s(hi, regOpHi(OP_A(inst)));
+        break;
+    }
+    case IrCmd::TOINT_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        build.fcvtzs_4s(inst.regA64, regOp(OP_A(inst)));
+        build.fcvtzs_4s(hi, regOpHi(OP_A(inst)));
+        break;
+    }
+    case IrCmd::SHL_SIMD256:
+    case IrCmd::SHR_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+        RegisterA64 aLo = regOp(OP_A(inst)), aHi = regOpHi(OP_A(inst));
+        if (n == 0)
+        {
+            build.mov(inst.regA64, aLo);
+            build.mov(hi, aHi);
+        }
+        else if (inst.cmd == IrCmd::SHL_SIMD256)
+        {
+            build.shl_4s(inst.regA64, aLo, n);
+            build.shl_4s(hi, aHi, n);
+        }
+        else
+        {
+            build.ushr_4s(inst.regA64, aLo, n);
+            build.ushr_4s(hi, aHi, n);
+        }
+        break;
+    }
+    case IrCmd::ROTL_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+        RegisterA64 aLo = regOp(OP_A(inst)), aHi = regOpHi(OP_A(inst));
+        if (n == 0)
+        {
+            build.mov(inst.regA64, aLo);
+            build.mov(hi, aHi);
+        }
+        else if (n == 16)
+        {
+            build.rev32_8h(inst.regA64, aLo);
+            build.rev32_8h(hi, aHi);
+        }
+        else
+        {
+            build.shl_4s(inst.regA64, aLo, n);
+            build.sri_4s(inst.regA64, aLo, uint8_t(32 - n));
+            build.shl_4s(hi, aHi, n);
+            build.sri_4s(hi, aHi, uint8_t(32 - n));
+        }
+        break;
+    }
+    case IrCmd::SHUFFLE_SIMD256:
+    {
+        // vpshufd applies the selector within each 128-bit lane, so both halves use the same tbl index
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        uint8_t control = uint8_t(intOp(OP_B(inst)));
+
+        uint8_t idx[16];
+        for (int i = 0; i < 4; i++)
+        {
+            int srcLane = (control >> (2 * i)) & 3;
+            for (int b = 0; b < 4; b++)
+                idx[i * 4 + b] = uint8_t(srcLane * 4 + b);
+        }
+
+        RegisterA64 idxReg = regs.allocTemp(KindA64::q);
+        RegisterA64 addr = regs.allocTemp(KindA64::x);
+        build.adr(addr, idx, sizeof(idx));
+        build.ldr(idxReg, addr);
+        build.tbl_16b(inst.regA64, regOp(OP_A(inst)), idxReg);
+        build.tbl_16b(hi, regOpHi(OP_A(inst)), idxReg);
+        break;
+    }
     case IrCmd::FMIN_SIMD256:
     case IrCmd::FMAX_SIMD256:
-    case IrCmd::FSQRT_SIMD256:
-    case IrCmd::FMA_SIMD256:
-    case IrCmd::TOFLOAT_SIMD256:
-    case IrCmd::TOINT_SIMD256:
-        error = true;
+    {
+        // SSE vminps/vmaxps semantics via fcmgt + select, applied to each half (see the 4-wide FMIN/FMAX)
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 aLo = regOp(OP_A(inst)), aHi = regOpHi(OP_A(inst));
+        RegisterA64 bLo = regOp(OP_B(inst)), bHi = regOpHi(OP_B(inst));
+        RegisterA64 mask = regs.allocTemp(KindA64::q);
+
+        bool isMin = inst.cmd == IrCmd::FMIN_SIMD256;
+        // low half
+        if (isMin)
+            build.fcmgt_4s(mask, bLo, aLo);
+        else
+            build.fcmgt_4s(mask, aLo, bLo);
+        build.mov(inst.regA64, bLo);
+        build.bit(inst.regA64, aLo, mask);
+        // high half
+        if (isMin)
+            build.fcmgt_4s(mask, bHi, aHi);
+        else
+            build.fcmgt_4s(mask, aHi, bHi);
+        build.mov(hi, bHi);
+        build.bit(hi, aHi, mask);
         break;
+    }
+    case IrCmd::FMA_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 aLo = regOp(OP_A(inst)), aHi = regOpHi(OP_A(inst));
+        RegisterA64 bLo = regOp(OP_B(inst)), bHi = regOpHi(OP_B(inst));
+        RegisterA64 cLo = regOp(OP_C(inst)), cHi = regOpHi(OP_C(inst));
+        build.mov(inst.regA64, cLo);
+        build.fmla(inst.regA64, aLo, bLo);
+        build.mov(hi, cHi);
+        build.fmla(hi, aHi, bHi);
+        break;
+    }
 
         // To handle unsupported instructions, add "case IrCmd::OP" and make sure to set error = true!
     }
@@ -4262,6 +4816,17 @@ RegisterA64 IrLoweringA64::regOp(IrOp op)
 
     CODEGEN_ASSERT(inst.regA64 != noreg);
     return inst.regA64;
+}
+
+RegisterA64 IrLoweringA64::regOpHi(IrOp op)
+{
+    IrInst& inst = function.instOp(op);
+
+    if (inst.spilled || inst.needsReload)
+        regs.restoreReg(inst);
+
+    CODEGEN_ASSERT(inst.regA64Hi != noreg);
+    return inst.regA64Hi;
 }
 
 IrConst IrLoweringA64::constOp(IrOp op) const

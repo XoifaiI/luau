@@ -60,6 +60,32 @@ static void freeSpill(uint64_t& free, KindA64 kind, uint8_t slot)
     free |= mask;
 }
 
+// A Simd256 value spills as two q registers into four consecutive dword slots (low q at slot, high q at slot + 2).
+// Restricted to the main spill area (not the emergency/extra region, whose ecbdata-relative addressing is per-reg).
+static int allocSpill256(uint64_t& free)
+{
+    uint64_t search = free & (free >> 1) & (free >> 2) & (free >> 3);
+
+    int slot = countrz(search);
+    if (slot == 64 || slot + 3 >= kSpillSlots)
+        return -1;
+
+    uint64_t mask = 0xfull << (unsigned long long)slot;
+
+    CODEGEN_ASSERT((free & mask) == mask);
+    free &= ~mask;
+
+    return slot;
+}
+
+static void freeSpill256(uint64_t& free, uint8_t slot)
+{
+    uint64_t mask = 0xfull << (unsigned long long)slot;
+
+    CODEGEN_ASSERT((free & mask) == 0);
+    free |= mask;
+}
+
 static int getReloadOffset(IrValueKind kind)
 {
     switch (kind)
@@ -82,8 +108,10 @@ static int getReloadOffset(IrValueKind kind)
         return offsetof(TValue, value.n);
     case IrValueKind::Tvalue:
     case IrValueKind::Simd:
-        // SIMD has no A64 lowering (the function bails to the interpreter), but a spill may still be requested
-        // before the bail is observed; treat it like a full TValue so this never asserts on ARM.
+    case IrValueKind::Simd256:
+        // SIMD values are register/spill-only (never mirror a VM slot, since the slot holds a box pointer rather
+        // than lane data), so this reload-from-original-location offset is never used for them; the q stack-slot
+        // spill path handles them. Return 0 so the shared restore machinery never asserts.
         return 0;
     }
 
@@ -228,6 +256,15 @@ RegisterA64 IrRegAllocA64::allocReuse(KindA64 kind, uint32_t index, std::initial
     return allocReg(kind, index);
 }
 
+RegisterA64 IrRegAllocA64::allocReg256(uint32_t index, RegisterA64& hiOut)
+{
+    // Two q registers. allocReg handles register pressure; the second allocation can never evict the first because
+    // findInstructionWithFurthestNextUse skips the current instruction's registers (the low half's def == index).
+    RegisterA64 lo = allocReg(KindA64::q, index);
+    hiOut = allocReg(KindA64::q, index);
+    return lo;
+}
+
 RegisterA64 IrRegAllocA64::takeReg(RegisterA64 reg, uint32_t index)
 {
     Set& set = getSet(reg.kind);
@@ -262,6 +299,13 @@ void IrRegAllocA64::freeLastUseReg(IrInst& target, uint32_t index)
         // Register might have already been freed if it had multiple uses inside a single instruction
         if (target.regA64 == noreg)
             return;
+
+        // A Simd256 value also owns a high-half q register (NEON has no 256-bit register); free both
+        if (target.regA64Hi != noreg)
+        {
+            freeReg(target.regA64Hi);
+            target.regA64Hi = noreg;
+        }
 
         freeReg(target.regA64);
         target.regA64 = noreg;
@@ -449,8 +493,16 @@ size_t IrRegAllocA64::spill(uint32_t index, std::initializer_list<RegisterA64> l
 
             uint32_t targetInstIdx = set.defs[reg];
 
-            CODEGEN_ASSERT(targetInstIdx != kInvalidInstIdx);
-            CODEGEN_ASSERT(function.instructions[targetInstIdx].regA64.index == reg);
+            // A Simd256 value occupies two registers; spilling it through either one clears both defs, so the loop
+            // can reach the other half already freed (def == invalid) - skip it.
+            if (targetInstIdx == kInvalidInstIdx)
+            {
+                regs &= ~(1u << reg);
+                continue;
+            }
+
+            IrInst& targetDef = function.instructions[targetInstIdx];
+            CODEGEN_ASSERT(targetDef.regA64.index == reg || (targetDef.regA64Hi != noreg && targetDef.regA64Hi.index == reg));
 
             spill(set, index, targetInstIdx);
 
@@ -483,9 +535,18 @@ void IrRegAllocA64::restore(size_t start)
         for (size_t i = start; i < spills.size(); ++i)
         {
             Spill s = spills[i]; // copy in case takeReg reallocates spills
-            RegisterA64 reg = takeReg(s.origin, s.inst);
 
-            restore(s, reg);
+            if (getCmdValueKind(function.instructions[s.inst].cmd) == IrValueKind::Simd256)
+            {
+                RegisterA64 lo = takeReg(s.origin, s.inst);
+                RegisterA64 hi = takeReg(s.originHi, s.inst);
+                restoreSimd256(s, lo, hi);
+            }
+            else
+            {
+                RegisterA64 reg = takeReg(s.origin, s.inst);
+                restore(s, reg);
+            }
         }
 
         spills.resize(start);
@@ -501,9 +562,18 @@ void IrRegAllocA64::restoreReg(IrInst& inst)
         if (spills[i].inst == index)
         {
             Spill s = spills[i]; // copy in case allocReg reallocates spills
-            RegisterA64 reg = allocReg(s.origin.kind, index);
 
-            restore(s, reg);
+            if (getCmdValueKind(inst.cmd) == IrValueKind::Simd256)
+            {
+                RegisterA64 hi;
+                RegisterA64 lo = allocReg256(index, hi);
+                restoreSimd256(s, lo, hi);
+            }
+            else
+            {
+                RegisterA64 reg = allocReg(s.origin.kind, index);
+                restore(s, reg);
+            }
 
             spills[i] = spills.back();
             spills.pop_back();
@@ -587,16 +657,68 @@ void IrRegAllocA64::restore(const IrRegAllocA64::Spill& s, RegisterA64 reg)
     inst.regA64 = reg;
 }
 
+void IrRegAllocA64::restoreSimd256(const IrRegAllocA64::Spill& s, RegisterA64 lo, RegisterA64 hi)
+{
+    IrInst& inst = function.instructions[s.inst];
+    CODEGEN_ASSERT(inst.regA64 == noreg && inst.regA64Hi == noreg);
+    CODEGEN_ASSERT(s.slot >= 0 && !isExtraSpillSlot(s.slot));
+
+    build.ldr(lo, mem(sp, sSpillArea.data + s.slot * 8));
+    build.ldr(hi, mem(sp, sSpillArea.data + (s.slot + 2) * 8));
+
+    freeSpill256(freeSpillSlots, s.slot);
+
+    inst.spilled = false;
+    inst.needsReload = false;
+    inst.regA64 = lo;
+    inst.regA64Hi = hi;
+}
+
 void IrRegAllocA64::spill(Set& set, uint32_t index, uint32_t targetInstIdx)
 {
     IrInst& def = function.instructions[targetInstIdx];
-    int reg = def.regA64.index;
+
+    // A Simd256 value owns two registers; spilling it through either half handles the whole pair and clears both
+    // defs, so a second visit (the spill-all loop reaches the other half) must be a no-op.
+    if (def.spilled || def.needsReload)
+        return;
 
     CODEGEN_ASSERT(!def.reusedReg);
-    CODEGEN_ASSERT(!def.spilled);
-    CODEGEN_ASSERT(!def.needsReload);
 
-    if (def.lastUse == index)
+    bool wide = getCmdValueKind(def.cmd) == IrValueKind::Simd256;
+    int reg = def.regA64.index;
+    int regHi = wide ? def.regA64Hi.index : -1;
+
+    // Simd256 values never carry a VM-slot restore location (see IrValueLocationTracking); they always spill the
+    // pair to four consecutive native-stack slots.
+    if (wide && def.lastUse != index)
+    {
+        int slot = allocSpill256(freeSpillSlots);
+        if (slot < 0)
+        {
+            slot = kInvalidSpill;
+            error = true;
+        }
+        else
+        {
+            build.str(def.regA64, mem(sp, sSpillArea.data + slot * 8));
+            build.str(def.regA64Hi, mem(sp, sSpillArea.data + (slot + 2) * 8));
+        }
+
+        Spill s = {targetInstIdx, def.regA64, int8_t(slot), def.regA64Hi};
+        spills.push_back(s);
+
+        def.spilled = true;
+
+        if (stats)
+        {
+            stats->spillsToSlot++;
+
+            if (slot != kInvalidSpill && unsigned(slot + 4) > stats->maxSpillSlotsUsed)
+                stats->maxSpillSlotsUsed = slot + 4;
+        }
+    }
+    else if (def.lastUse == index)
     {
         // instead of spilling the register to never reload it, we assume the register is not needed anymore
     }
@@ -681,6 +803,14 @@ void IrRegAllocA64::spill(Set& set, uint32_t index, uint32_t targetInstIdx)
 
     set.free |= 1u << reg;
     set.defs[reg] = kInvalidInstIdx;
+
+    // release the Simd256 high half too
+    if (wide)
+    {
+        def.regA64Hi = noreg;
+        set.free |= 1u << regHi;
+        set.defs[regHi] = kInvalidInstIdx;
+    }
 }
 
 uint32_t IrRegAllocA64::findInstructionWithFurthestNextUse(Set& set) const

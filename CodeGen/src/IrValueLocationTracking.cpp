@@ -48,6 +48,13 @@ void IrValueLocationTracking::processStoreLocationHint(const StoreLocationHint* 
     CODEGEN_ASSERT(hint);
     CODEGEN_ASSERT(hint->op.kind == IrOpKind::VmReg);
 
+    // A SIMD store boxes the lane data: the VM slot holds a GCObject pointer, not the lanes, so the value cannot be
+    // lazily restored from the slot. Recording a lazy restore here lets the A64 spiller write lane data over the box
+    // and corrupt the high lane via the nil-tag guard at offsetof(TValue, tt). SIMD values must spill to the native
+    // stack, so never hint a slot restore for them.
+    if (hint->kind == IrValueKind::Simd || hint->kind == IrValueKind::Simd256)
+        return;
+
     if (hint->instIdx != kInvalidInstIdx)
     {
         if (function.instructions[hint->instIdx].useCount == 0)
@@ -227,8 +234,6 @@ void IrValueLocationTracking::afterInstLowering(IrInst& inst, uint32_t instIdx)
     case IrCmd::STORE_INT:
     case IrCmd::STORE_INT64:
     case IrCmd::STORE_TVALUE:
-    case IrCmd::STORE_SIMD:
-    case IrCmd::STORE_SIMD256:
         // If this is not the last use of the stored value, we can restore it from this new location
         // Additionally, even if it's a last use, it might allow its argument to be restored
         if (OP_B(inst).kind == IrOpKind::Inst)
@@ -238,6 +243,14 @@ void IrValueLocationTracking::afterInstLowering(IrInst& inst, uint32_t instIdx)
             if (source.lastUse != instIdx || canRematerializeArguments(source))
                 recordRestoreOp(OP_B(inst).index, OP_A(inst));
         }
+        break;
+    case IrCmd::STORE_SIMD:
+    case IrCmd::STORE_SIMD256:
+        // A SIMD store boxes the value: the VM slot ends up holding a GCObject pointer, not the lane data, so the
+        // lane value cannot be rematerialized from the slot with a plain load. Recording a restore location here
+        // would let the spiller overwrite the box with raw lanes and, via the nil-tag guard written at
+        // offsetof(TValue, tt), corrupt the high lane. SIMD values must always spill to the native stack, so
+        // record nothing.
         break;
     case IrCmd::STORE_SPLIT_TVALUE:
         // If this is not the last use of the stored value, we can restore it from this new location
