@@ -1339,6 +1339,21 @@ OperandX64 AssemblyBuilderX64::u32x4(uint32_t x, uint32_t y, uint32_t z, uint32_
     return OperandX64(SizeX64::xmmword, noreg, 1, rip, int32_t(pos - data.size()));
 }
 
+OperandX64 AssemblyBuilderX64::u32x8(
+    uint32_t x0, uint32_t y0, uint32_t z0, uint32_t w0, uint32_t x1, uint32_t y1, uint32_t z1, uint32_t w1)
+{
+    size_t pos = allocateData(32, 32);
+    writeu32(&data[pos + 0], x0);
+    writeu32(&data[pos + 4], y0);
+    writeu32(&data[pos + 8], z0);
+    writeu32(&data[pos + 12], w0);
+    writeu32(&data[pos + 16], x1);
+    writeu32(&data[pos + 20], y1);
+    writeu32(&data[pos + 24], z1);
+    writeu32(&data[pos + 28], w1);
+    return OperandX64(SizeX64::ymmword, noreg, 1, rip, int32_t(pos - data.size()));
+}
+
 OperandX64 AssemblyBuilderX64::f32x4(float x, float y, float z, float w)
 {
     size_t pos = allocateData(16, 16);

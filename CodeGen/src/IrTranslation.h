@@ -15,7 +15,7 @@ namespace CodeGen
 enum class IrCondition : uint8_t;
 struct IrOp;
 struct IrBuilder;
-enum class IrCmd : uint8_t;
+enum class IrCmd : uint16_t;
 
 void translateInstLoadNil(IrBuilder& build, const Instruction* pc);
 void translateInstLoadB(IrBuilder& build, const Instruction* pc, int pcpos);

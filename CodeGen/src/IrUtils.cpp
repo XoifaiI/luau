@@ -451,6 +451,16 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::SHR_SIMD256:
     case IrCmd::ROTL_SIMD256:
     case IrCmd::SHUFFLE_SIMD256:
+    case IrCmd::FADD_SIMD256:
+    case IrCmd::FSUB_SIMD256:
+    case IrCmd::FMUL_SIMD256:
+    case IrCmd::FDIV_SIMD256:
+    case IrCmd::FMIN_SIMD256:
+    case IrCmd::FMAX_SIMD256:
+    case IrCmd::FSQRT_SIMD256:
+    case IrCmd::FMA_SIMD256:
+    case IrCmd::TOFLOAT_SIMD256:
+    case IrCmd::TOINT_SIMD256:
         return IrValueKind::Simd256;
     case IrCmd::BUFFER_WRITESIMD:
     case IrCmd::STORE_SIMD:

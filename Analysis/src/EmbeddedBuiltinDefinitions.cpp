@@ -390,6 +390,9 @@ declare simd: {
 
 -- 8-wide (256-bit) integer lane ops; values reuse the opaque simd type (same boxed object, all 8 lanes)
 declare simd256: {
+    create: @checked (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) -> simd,
+    splat: @checked (v: number) -> simd,
+    extract: @checked (v: simd, index: number) -> number,
     add: @checked (a: simd, b: simd) -> simd,
     sub: @checked (a: simd, b: simd) -> simd,
     band: @checked (a: simd, b: simd) -> simd,
@@ -400,6 +403,16 @@ declare simd256: {
     shr: @checked (a: simd, count: number) -> simd,
     rotl: @checked (a: simd, count: number) -> simd,
     shuffle: @checked (v: simd, control: number) -> simd,
+    fadd: @checked (a: simd, b: simd) -> simd,
+    fsub: @checked (a: simd, b: simd) -> simd,
+    fmul: @checked (a: simd, b: simd) -> simd,
+    fdiv: @checked (a: simd, b: simd) -> simd,
+    fmin: @checked (a: simd, b: simd) -> simd,
+    fmax: @checked (a: simd, b: simd) -> simd,
+    fsqrt: @checked (a: simd) -> simd,
+    fma: @checked (a: simd, b: simd, c: simd) -> simd,
+    tofloat: @checked (a: simd) -> simd,
+    toint: @checked (a: simd) -> simd,
 }
 
 )BUILTIN_SRC";

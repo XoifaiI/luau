@@ -3627,6 +3627,11 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             // rotl by 16 swaps the 16-bit halves of each lane [b0 b1 b2 b3] -> [b2 b3 b0 b1]
             build.vpshufb(inst.regX64, regOp(OP_A(inst)), build.u32x4(0x01000302, 0x05040706, 0x09080b0a, 0x0d0c0f0e));
         }
+        else if (n == 24)
+        {
+            // rotl by 24 is a per-lane byte rotation [b0 b1 b2 b3] -> [b1 b2 b3 b0]
+            build.vpshufb(inst.regX64, regOp(OP_A(inst)), build.u32x4(0x00030201, 0x04070605, 0x080b0a09, 0x0c0f0e0d));
+        }
         else
         {
             ScopedRegX64 tmp{regs, SizeX64::xmmword};
@@ -3739,12 +3744,90 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             if (inst.regX64 != regOp(OP_A(inst)))
                 build.vmovups(inst.regX64, regOp(OP_A(inst)));
         }
+        else if (n == 8)
+        {
+            // per-lane byte rotation; the 128-bit mask is replicated to both lanes since vpshufb is per-128-lane
+            build.vpshufb(
+                inst.regX64,
+                regOp(OP_A(inst)),
+                build.u32x8(0x02010003, 0x06050407, 0x0a09080b, 0x0e0d0c0f, 0x02010003, 0x06050407, 0x0a09080b, 0x0e0d0c0f)
+            );
+        }
+        else if (n == 16)
+        {
+            build.vpshufb(
+                inst.regX64,
+                regOp(OP_A(inst)),
+                build.u32x8(0x01000302, 0x05040706, 0x09080b0a, 0x0d0c0f0e, 0x01000302, 0x05040706, 0x09080b0a, 0x0d0c0f0e)
+            );
+        }
+        else if (n == 24)
+        {
+            build.vpshufb(
+                inst.regX64,
+                regOp(OP_A(inst)),
+                build.u32x8(0x00030201, 0x04070605, 0x080b0a09, 0x0c0f0e0d, 0x00030201, 0x04070605, 0x080b0a09, 0x0c0f0e0d)
+            );
+        }
         else
         {
             ScopedRegX64 tmp{regs, SizeX64::ymmword};
             build.vpslld(tmp.reg, regOp(OP_A(inst)), n);
             build.vpsrld(inst.regX64, regOp(OP_A(inst)), uint8_t(32 - n));
             build.vpor(inst.regX64, inst.regX64, tmp.reg);
+        }
+        break;
+    }
+    case IrCmd::FADD_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vaddps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FSUB_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vsubps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FMUL_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vmulps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FDIV_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vdivps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FMIN_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vminps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FMAX_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vmaxps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FSQRT_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+        build.vsqrtps(inst.regX64, regOp(OP_A(inst)));
+        break;
+    case IrCmd::TOFLOAT_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+        build.vcvtdq2ps(inst.regX64, regOp(OP_A(inst)));
+        break;
+    case IrCmd::TOINT_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+        build.vcvttps2dq(inst.regX64, regOp(OP_A(inst)));
+        break;
+    case IrCmd::FMA_SIMD256:
+    {
+        if ((build.features & Feature_FMA3) != 0)
+        {
+            inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+            if (inst.regX64 != regOp(OP_A(inst)))
+                build.vmovups(inst.regX64, regOp(OP_A(inst)));
+            build.vfmadd213ps(inst.regX64, regOp(OP_B(inst)), regOp(OP_C(inst)));
+        }
+        else
+        {
+            inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+            build.vmulps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+            build.vaddps(inst.regX64, inst.regX64, regOp(OP_C(inst)));
         }
         break;
     }
@@ -4295,6 +4378,18 @@ bool IrLoweringX64::hasError() const
     // If register allocator had to use more stack slots than we have available, this function can't run natively
     if (regs.maxUsedSlot > kSpillSlots + kExtraSpillSlots)
         return true;
+
+    // 256-bit (ymm) SIMD value ops are AVX2-only; on AVX1 CPUs they would #UD at runtime. Bail such functions to
+    // the interpreter (which runs the simd256.* / readu32x8 library implementations in scalar C). Only scanned when
+    // AVX2 is absent, so there is no cost on AVX2 hardware. A function using any 256 value has a Simd256-producing op.
+    if ((build.features & Feature_AVX2) == 0)
+    {
+        for (const IrInst& inst : function.instructions)
+        {
+            if (getCmdValueKind(inst.cmd) == IrValueKind::Simd256)
+                return true;
+        }
+    }
 
     return false;
 }

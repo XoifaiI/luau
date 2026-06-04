@@ -291,6 +291,26 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_ROTL;
         if (builtin.method == "shuffle")
             return LBF_SIMD256_SHUFFLE;
+        if (builtin.method == "fadd")
+            return LBF_SIMD256_FADD;
+        if (builtin.method == "fsub")
+            return LBF_SIMD256_FSUB;
+        if (builtin.method == "fmul")
+            return LBF_SIMD256_FMUL;
+        if (builtin.method == "fdiv")
+            return LBF_SIMD256_FDIV;
+        if (builtin.method == "fmin")
+            return LBF_SIMD256_FMIN;
+        if (builtin.method == "fmax")
+            return LBF_SIMD256_FMAX;
+        if (builtin.method == "fsqrt")
+            return LBF_SIMD256_FSQRT;
+        if (builtin.method == "fma")
+            return LBF_SIMD256_FMA;
+        if (builtin.method == "tofloat")
+            return LBF_SIMD256_TOFLOAT;
+        if (builtin.method == "toint")
+            return LBF_SIMD256_TOINT;
     }
 
     if (builtin.object == "simd")
@@ -778,9 +798,20 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD256_SHR:
     case LBF_SIMD256_ROTL:
     case LBF_SIMD256_SHUFFLE:
+    case LBF_SIMD256_FADD:
+    case LBF_SIMD256_FSUB:
+    case LBF_SIMD256_FMUL:
+    case LBF_SIMD256_FDIV:
+    case LBF_SIMD256_FMIN:
+    case LBF_SIMD256_FMAX:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD256_BNOT:
+    case LBF_SIMD256_FSQRT:
+    case LBF_SIMD256_TOFLOAT:
+    case LBF_SIMD256_TOINT:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_SIMD256_FMA:
+        return {3, 1, BuiltinInfo::Flag_NoneSafe};
 
     case LBF_VECTOR_MAGNITUDE:
     case LBF_VECTOR_NORMALIZE:

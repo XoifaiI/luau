@@ -1586,6 +1586,49 @@ static void handleBuiltinEffects(ConstPropState& state, LuauBuiltinFunction bfid
     case LBF_INTEGER_CLAMP:
     case LBF_INTEGER_EXTRACT:
     case LBF_INTEGER_TONUMBER:
+    case LBF_BUFFER_READSIMD:
+    case LBF_BUFFER_READSIMD256:
+    case LBF_SIMD_ADD:
+    case LBF_SIMD_SUB:
+    case LBF_SIMD_MUL:
+    case LBF_SIMD_BAND:
+    case LBF_SIMD_BOR:
+    case LBF_SIMD_BXOR:
+    case LBF_SIMD_BNOT:
+    case LBF_SIMD_SHL:
+    case LBF_SIMD_SHR:
+    case LBF_SIMD_ROTL:
+    case LBF_SIMD_FADD:
+    case LBF_SIMD_FSUB:
+    case LBF_SIMD_FMUL:
+    case LBF_SIMD_FDIV:
+    case LBF_SIMD_FMIN:
+    case LBF_SIMD_FMAX:
+    case LBF_SIMD_FSQRT:
+    case LBF_SIMD_FMA:
+    case LBF_SIMD_TOFLOAT:
+    case LBF_SIMD_TOINT:
+    case LBF_SIMD_SHUFFLE:
+    case LBF_SIMD256_ADD:
+    case LBF_SIMD256_SUB:
+    case LBF_SIMD256_BAND:
+    case LBF_SIMD256_BOR:
+    case LBF_SIMD256_BXOR:
+    case LBF_SIMD256_BNOT:
+    case LBF_SIMD256_SHL:
+    case LBF_SIMD256_SHR:
+    case LBF_SIMD256_ROTL:
+    case LBF_SIMD256_SHUFFLE:
+    case LBF_SIMD256_FADD:
+    case LBF_SIMD256_FSUB:
+    case LBF_SIMD256_FMUL:
+    case LBF_SIMD256_FDIV:
+    case LBF_SIMD256_FMIN:
+    case LBF_SIMD256_FMAX:
+    case LBF_SIMD256_FSQRT:
+    case LBF_SIMD256_FMA:
+    case LBF_SIMD256_TOFLOAT:
+    case LBF_SIMD256_TOINT:
         break;
     case LBF_BUFFER_WRITEU8:
     case LBF_BUFFER_WRITEU16:
@@ -1593,6 +1636,8 @@ static void handleBuiltinEffects(ConstPropState& state, LuauBuiltinFunction bfid
     case LBF_BUFFER_WRITEF32:
     case LBF_BUFFER_WRITEF64:
     case LBF_BUFFER_WRITEINTEGER:
+    case LBF_BUFFER_WRITESIMD:
+    case LBF_BUFFER_WRITESIMD256:
         state.invalidateHeapBufferData();
         break;
     case LBF_TABLE_INSERT:
@@ -2092,6 +2137,54 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
 
             state.forwardVmRegStoreToLoad(inst, IrCmd::LOAD_SIMD256);
         }
+        break;
+    // SIMD value-producing and buffer-vector ops carry no constant-propagation state of their own; they are
+    // listed explicitly (no default in this switch) so adding a new IR command forces a decision here.
+    case IrCmd::BUFFER_READSIMD:
+    case IrCmd::BUFFER_WRITESIMD:
+    case IrCmd::ADD_SIMD:
+    case IrCmd::SUB_SIMD:
+    case IrCmd::MUL_SIMD:
+    case IrCmd::AND_SIMD:
+    case IrCmd::OR_SIMD:
+    case IrCmd::XOR_SIMD:
+    case IrCmd::NOT_SIMD:
+    case IrCmd::SHL_SIMD:
+    case IrCmd::SHR_SIMD:
+    case IrCmd::ROTL_SIMD:
+    case IrCmd::FADD_SIMD:
+    case IrCmd::FSUB_SIMD:
+    case IrCmd::FMUL_SIMD:
+    case IrCmd::FDIV_SIMD:
+    case IrCmd::FMIN_SIMD:
+    case IrCmd::FMAX_SIMD:
+    case IrCmd::FSQRT_SIMD:
+    case IrCmd::FMA_SIMD:
+    case IrCmd::TOFLOAT_SIMD:
+    case IrCmd::TOINT_SIMD:
+    case IrCmd::SHUFFLE_SIMD:
+    case IrCmd::BUFFER_READSIMD256:
+    case IrCmd::BUFFER_WRITESIMD256:
+    case IrCmd::ADD_SIMD256:
+    case IrCmd::SUB_SIMD256:
+    case IrCmd::AND_SIMD256:
+    case IrCmd::OR_SIMD256:
+    case IrCmd::XOR_SIMD256:
+    case IrCmd::NOT_SIMD256:
+    case IrCmd::SHL_SIMD256:
+    case IrCmd::SHR_SIMD256:
+    case IrCmd::ROTL_SIMD256:
+    case IrCmd::SHUFFLE_SIMD256:
+    case IrCmd::FADD_SIMD256:
+    case IrCmd::FSUB_SIMD256:
+    case IrCmd::FMUL_SIMD256:
+    case IrCmd::FDIV_SIMD256:
+    case IrCmd::FMIN_SIMD256:
+    case IrCmd::FMAX_SIMD256:
+    case IrCmd::FSQRT_SIMD256:
+    case IrCmd::FMA_SIMD256:
+    case IrCmd::TOFLOAT_SIMD256:
+    case IrCmd::TOINT_SIMD256:
         break;
     case IrCmd::STORE_TVALUE:
         // A compiler-emitted MOVE of a SIMD local lowers to LOAD_TVALUE Rsrc + STORE_TVALUE Rdst. When Rsrc is

@@ -46,7 +46,7 @@ enum
 // * Kn - VM proto constant slot, n in 0..2^23-1
 // * UPn - VM function upvalue slot, n in 0..199
 // * A, B, C, D, E, F, G are instruction arguments
-enum class IrCmd : uint8_t
+enum class IrCmd : uint16_t
 {
     NOP,
 
@@ -1128,6 +1128,18 @@ enum class IrCmd : uint8_t
     SHR_SIMD256,
     ROTL_SIMD256,
     SHUFFLE_SIMD256,
+
+    // 256-bit (8-wide f32) float lane ops, counterparts of the 128-bit float forms.
+    FADD_SIMD256,
+    FSUB_SIMD256,
+    FMUL_SIMD256,
+    FDIV_SIMD256,
+    FMIN_SIMD256,
+    FMAX_SIMD256,
+    FSQRT_SIMD256,
+    FMA_SIMD256,
+    TOFLOAT_SIMD256,
+    TOINT_SIMD256,
 
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer

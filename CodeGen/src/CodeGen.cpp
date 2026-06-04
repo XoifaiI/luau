@@ -180,6 +180,19 @@ unsigned int getCpuFeaturesX64()
     if ((cpuinfo[2] & 0x10000000) != 0)
         result |= X64::Feature_AVX;
 
+    // AVX2 is reported by CPUID leaf 7, sub-leaf 0, EBX bit 5. Required for 256-bit ymm integer instructions.
+    int cpuinfo7[4] = {0, 0, 0, 0};
+#if defined(CODEGEN_TARGET_X64)
+#ifdef _MSC_VER
+    __cpuidex(cpuinfo7, 7, 0);
+#else
+    __cpuid_count(7, 0, cpuinfo7[0], cpuinfo7[1], cpuinfo7[2], cpuinfo7[3]);
+#endif
+#endif
+
+    if ((cpuinfo7[1] & (1 << 5)) != 0)
+        result |= X64::Feature_AVX2;
+
     return result;
 }
 #endif

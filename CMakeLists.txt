@@ -28,7 +28,11 @@ endif()
 
 project(Luau LANGUAGES CXX C)
 
-add_compile_definitions(LUAU_ENABLE_ASSERT)
+# Asserts (LUAU_ASSERT/CODEGEN_ASSERT, including codegen sanity checks and the parser recursion guards the
+# test suite depends on) are enabled for all non-release builds and compiled out of an optimized Release.
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_definitions(LUAU_ENABLE_ASSERT)
+endif()
 
 if (LUAU_BUILD_SHARED)
     add_library(Luau.Common SHARED)

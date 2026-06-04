@@ -21,7 +21,8 @@ namespace X64
 enum FeaturesX64
 {
     Feature_FMA3 = 1 << 0,
-    Feature_AVX = 1 << 1
+    Feature_AVX = 1 << 1,
+    Feature_AVX2 = 1 << 2 // required for 256-bit (ymm) integer ops; absent on AVX1-only CPUs (Sandy/Ivy Bridge)
 };
 
 enum class RoundingModeX64
@@ -244,6 +245,7 @@ public:
     OperandX64 f32(float value);
     OperandX64 f64(double value);
     OperandX64 u32x4(uint32_t x, uint32_t y, uint32_t z, uint32_t w);
+    OperandX64 u32x8(uint32_t x0, uint32_t y0, uint32_t z0, uint32_t w0, uint32_t x1, uint32_t y1, uint32_t z1, uint32_t w1);
     OperandX64 f32x4(float x, float y, float z, float w);
     OperandX64 f64x2(double x, double y);
     OperandX64 bytes(const void* ptr, size_t size, size_t align = 8);

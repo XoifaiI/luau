@@ -3724,6 +3724,16 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     case IrCmd::SHR_SIMD256:
     case IrCmd::ROTL_SIMD256:
     case IrCmd::SHUFFLE_SIMD256:
+    case IrCmd::FADD_SIMD256:
+    case IrCmd::FSUB_SIMD256:
+    case IrCmd::FMUL_SIMD256:
+    case IrCmd::FDIV_SIMD256:
+    case IrCmd::FMIN_SIMD256:
+    case IrCmd::FMAX_SIMD256:
+    case IrCmd::FSQRT_SIMD256:
+    case IrCmd::FMA_SIMD256:
+    case IrCmd::TOFLOAT_SIMD256:
+    case IrCmd::TOINT_SIMD256:
         error = true;
         break;
 

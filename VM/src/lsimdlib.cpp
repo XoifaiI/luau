@@ -339,7 +339,127 @@ static int simd256_shuffle(lua_State* L)
     return 1;
 }
 
+#define SIMD256_FBINOP(name, op) \
+    static int simd256_##name(lua_State* L) \
+    { \
+        const uint32_t* a = luaL_checksimd(L, 1); \
+        const uint32_t* b = luaL_checksimd(L, 2); \
+        uint32_t* r = lua_newsimd(L); \
+        for (int i = 0; i < 8; i++) \
+        { \
+            float x, y, z; \
+            memcpy(&x, &a[i], sizeof(float)); \
+            memcpy(&y, &b[i], sizeof(float)); \
+            z = (op); \
+            memcpy(&r[i], &z, sizeof(float)); \
+        } \
+        return 1; \
+    }
+
+SIMD256_FBINOP(fadd, x + y)
+SIMD256_FBINOP(fsub, x - y)
+SIMD256_FBINOP(fmul, x* y)
+SIMD256_FBINOP(fdiv, x / y)
+SIMD256_FBINOP(fmin, x < y ? x : y)
+SIMD256_FBINOP(fmax, x > y ? x : y)
+
+#undef SIMD256_FBINOP
+
+static int simd256_fsqrt(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+    {
+        float x, z;
+        memcpy(&x, &a[i], sizeof(float));
+        z = sqrtf(x);
+        memcpy(&r[i], &z, sizeof(float));
+    }
+    return 1;
+}
+
+static int simd256_fma(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    const uint32_t* b = luaL_checksimd(L, 2);
+    const uint32_t* c = luaL_checksimd(L, 3);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+    {
+        float x, y, w, z;
+        memcpy(&x, &a[i], sizeof(float));
+        memcpy(&y, &b[i], sizeof(float));
+        memcpy(&w, &c[i], sizeof(float));
+        z = fmaf(x, y, w);
+        memcpy(&r[i], &z, sizeof(float));
+    }
+    return 1;
+}
+
+static int simd256_tofloat(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+    {
+        int32_t x;
+        memcpy(&x, &a[i], sizeof(int32_t));
+        float z = (float)x;
+        memcpy(&r[i], &z, sizeof(float));
+    }
+    return 1;
+}
+
+static int simd256_toint(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+    {
+        float x;
+        memcpy(&x, &a[i], sizeof(float));
+        int32_t z;
+        if (x >= -2147483648.0f && x < 2147483648.0f)
+            z = (int32_t)x;
+        else
+            z = (int32_t)0x80000000;
+        memcpy(&r[i], &z, sizeof(int32_t));
+    }
+    return 1;
+}
+
+static int simd256_create(lua_State* L)
+{
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = luaL_checkunsigned(L, i + 1);
+    return 1;
+}
+
+static int simd256_splat(lua_State* L)
+{
+    uint32_t v = luaL_checkunsigned(L, 1);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = v;
+    return 1;
+}
+
+static int simd256_extract(lua_State* L)
+{
+    const uint32_t* v = luaL_checksimd(L, 1);
+    int i = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(i) < 8, 2, "lane index out of range [0, 7]");
+
+    lua_pushunsigned(L, v[i]);
+    return 1;
+}
+
 static const luaL_Reg simd256lib[] = {
+    {"create", simd256_create},
+    {"splat", simd256_splat},
+    {"extract", simd256_extract},
     {"add", simd256_add},
     {"sub", simd256_sub},
     {"band", simd256_band},
@@ -350,6 +470,16 @@ static const luaL_Reg simd256lib[] = {
     {"shr", simd256_shr},
     {"rotl", simd256_rotl},
     {"shuffle", simd256_shuffle},
+    {"fadd", simd256_fadd},
+    {"fsub", simd256_fsub},
+    {"fmul", simd256_fmul},
+    {"fdiv", simd256_fdiv},
+    {"fmin", simd256_fmin},
+    {"fmax", simd256_fmax},
+    {"fsqrt", simd256_fsqrt},
+    {"fma", simd256_fma},
+    {"tofloat", simd256_tofloat},
+    {"toint", simd256_toint},
     {NULL, NULL},
 };
 

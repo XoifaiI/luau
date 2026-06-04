@@ -611,6 +611,26 @@ const char* getCmdName(IrCmd cmd)
         return "ROTL_SIMD256";
     case IrCmd::SHUFFLE_SIMD256:
         return "SHUFFLE_SIMD256";
+    case IrCmd::FADD_SIMD256:
+        return "FADD_SIMD256";
+    case IrCmd::FSUB_SIMD256:
+        return "FSUB_SIMD256";
+    case IrCmd::FMUL_SIMD256:
+        return "FMUL_SIMD256";
+    case IrCmd::FDIV_SIMD256:
+        return "FDIV_SIMD256";
+    case IrCmd::FMIN_SIMD256:
+        return "FMIN_SIMD256";
+    case IrCmd::FMAX_SIMD256:
+        return "FMAX_SIMD256";
+    case IrCmd::FSQRT_SIMD256:
+        return "FSQRT_SIMD256";
+    case IrCmd::FMA_SIMD256:
+        return "FMA_SIMD256";
+    case IrCmd::TOFLOAT_SIMD256:
+        return "TOFLOAT_SIMD256";
+    case IrCmd::TOINT_SIMD256:
+        return "TOINT_SIMD256";
     case IrCmd::JUMP_CMP_PROTOID:
         return "JUMP_CMP_PROTOID";
     }
