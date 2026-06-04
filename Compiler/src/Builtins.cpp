@@ -269,6 +269,106 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_BUFFER_WRITESIMD256;
     }
 
+    // Element-typed namespaces (u32x4/f32x4/u32x8/f32x8) reuse the simd/simd256 LBFs; the namespace carries the
+    // element type so the float ops drop the 'f' prefix (f32x4.add -> LBF_SIMD_FADD).
+    if (builtin.object == "u32x4")
+    {
+        if (builtin.method == "add")
+            return LBF_SIMD_ADD;
+        if (builtin.method == "sub")
+            return LBF_SIMD_SUB;
+        if (builtin.method == "mul")
+            return LBF_SIMD_MUL;
+        if (builtin.method == "band")
+            return LBF_SIMD_BAND;
+        if (builtin.method == "bor")
+            return LBF_SIMD_BOR;
+        if (builtin.method == "bxor")
+            return LBF_SIMD_BXOR;
+        if (builtin.method == "bnot")
+            return LBF_SIMD_BNOT;
+        if (builtin.method == "shl")
+            return LBF_SIMD_SHL;
+        if (builtin.method == "shr")
+            return LBF_SIMD_SHR;
+        if (builtin.method == "rotl")
+            return LBF_SIMD_ROTL;
+        if (builtin.method == "shuffle")
+            return LBF_SIMD_SHUFFLE;
+        if (builtin.method == "tofloat")
+            return LBF_SIMD_TOFLOAT;
+    }
+
+    if (builtin.object == "f32x4")
+    {
+        if (builtin.method == "add")
+            return LBF_SIMD_FADD;
+        if (builtin.method == "sub")
+            return LBF_SIMD_FSUB;
+        if (builtin.method == "mul")
+            return LBF_SIMD_FMUL;
+        if (builtin.method == "div")
+            return LBF_SIMD_FDIV;
+        if (builtin.method == "min")
+            return LBF_SIMD_FMIN;
+        if (builtin.method == "max")
+            return LBF_SIMD_FMAX;
+        if (builtin.method == "sqrt")
+            return LBF_SIMD_FSQRT;
+        if (builtin.method == "fma")
+            return LBF_SIMD_FMA;
+        if (builtin.method == "toint")
+            return LBF_SIMD_TOINT;
+    }
+
+    if (builtin.object == "u32x8")
+    {
+        if (builtin.method == "add")
+            return LBF_SIMD256_ADD;
+        if (builtin.method == "sub")
+            return LBF_SIMD256_SUB;
+        if (builtin.method == "band")
+            return LBF_SIMD256_BAND;
+        if (builtin.method == "bor")
+            return LBF_SIMD256_BOR;
+        if (builtin.method == "bxor")
+            return LBF_SIMD256_BXOR;
+        if (builtin.method == "bnot")
+            return LBF_SIMD256_BNOT;
+        if (builtin.method == "shl")
+            return LBF_SIMD256_SHL;
+        if (builtin.method == "shr")
+            return LBF_SIMD256_SHR;
+        if (builtin.method == "rotl")
+            return LBF_SIMD256_ROTL;
+        if (builtin.method == "shuffle")
+            return LBF_SIMD256_SHUFFLE;
+        if (builtin.method == "tofloat")
+            return LBF_SIMD256_TOFLOAT;
+    }
+
+    if (builtin.object == "f32x8")
+    {
+        if (builtin.method == "add")
+            return LBF_SIMD256_FADD;
+        if (builtin.method == "sub")
+            return LBF_SIMD256_FSUB;
+        if (builtin.method == "mul")
+            return LBF_SIMD256_FMUL;
+        if (builtin.method == "div")
+            return LBF_SIMD256_FDIV;
+        if (builtin.method == "min")
+            return LBF_SIMD256_FMIN;
+        if (builtin.method == "max")
+            return LBF_SIMD256_FMAX;
+        if (builtin.method == "sqrt")
+            return LBF_SIMD256_FSQRT;
+        if (builtin.method == "fma")
+            return LBF_SIMD256_FMA;
+        if (builtin.method == "toint")
+            return LBF_SIMD256_TOINT;
+    }
+
     if (builtin.object == "simd256")
     {
         if (builtin.method == "add")

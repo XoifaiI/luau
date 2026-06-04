@@ -131,6 +131,17 @@ IrLoweringX64::IrLoweringX64(AssemblyBuilderX64& build, ModuleHelpers& helpers, 
             if (inst.cmd == IrCmd::LOAD_SIMD || inst.cmd == IrCmd::LOAD_SIMD256)
                 continue;
 
+            // A call clobbers its whole frame (from the call base register upward), not just the nominal result
+            // registers: the callee leaves stale values there, and those can be SIMD boxes still aliased with the
+            // call's result (e.g. `local a,b,c = mk(),mk(),mk()` leaves a copy of c's box in a higher frame slot).
+            // If such a slot is later used for a fresh SIMD value, box reuse would overwrite the alias and corrupt
+            // the live result. Mark the entire clobber range as escaping so those slots fall back to fresh boxes.
+            if (inst.cmd == IrCmd::CALL)
+            {
+                for (int i = vmRegOp(OP_A(inst)); i < 256; i++)
+                    escapes[i] = true;
+            }
+
             // Commands the visitor does not model only read registers for guards/branches and cannot escape a box.
             if (!visitorModelsVmRegDefsUses(inst.cmd))
                 continue;

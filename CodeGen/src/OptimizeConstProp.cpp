@@ -1103,7 +1103,10 @@ struct ConstPropState
         bufferLoadStoreInfo.push_back(info);
     }
 
-    void forwardBufferStoreToLoad(IrInst& storeInst, IrCmd loadCmd, uint8_t accessSize)
+    // A buffer/userdata store of 'accessSize' bytes overwrites that range, so any cached load/store that overlaps it
+    // becomes stale and must be dropped. SIMD buffer writes (16/32 bytes) produce no forwardable scalar value but
+    // still need this so a later scalar read of the overwritten bytes is not forwarded to a pre-write value.
+    void invalidateBufferStoreRange(IrInst& storeInst, uint8_t accessSize)
     {
         uint8_t tag = function.tagOp(OP_D(storeInst));
 
@@ -1158,6 +1161,18 @@ struct ConstPropState
                 i++;
             }
         }
+    }
+
+    void forwardBufferStoreToLoad(IrInst& storeInst, IrCmd loadCmd, uint8_t accessSize)
+    {
+        invalidateBufferStoreRange(storeInst, accessSize);
+
+        // Stores at an unknown offset cannot record a forwardable value (we don't know where it landed)
+        if (OP_B(storeInst).kind != IrOpKind::Constant)
+            return;
+
+        uint8_t tag = function.tagOp(OP_D(storeInst));
+        int offset = function.intOp(OP_B(storeInst));
 
         IrOp value = OP_C(storeInst);
 
@@ -2140,8 +2155,15 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
         break;
     // SIMD value-producing and buffer-vector ops carry no constant-propagation state of their own; they are
     // listed explicitly (no default in this switch) so adding a new IR command forces a decision here.
-    case IrCmd::BUFFER_READSIMD:
     case IrCmd::BUFFER_WRITESIMD:
+        // 16-byte write produces no forwardable scalar value, but must drop cached loads it overwrites
+        state.invalidateBufferStoreRange(inst, 16);
+        break;
+    case IrCmd::BUFFER_WRITESIMD256:
+        // 32-byte write produces no forwardable scalar value, but must drop cached loads it overwrites
+        state.invalidateBufferStoreRange(inst, 32);
+        break;
+    case IrCmd::BUFFER_READSIMD:
     case IrCmd::ADD_SIMD:
     case IrCmd::SUB_SIMD:
     case IrCmd::MUL_SIMD:
@@ -2164,7 +2186,6 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
     case IrCmd::TOINT_SIMD:
     case IrCmd::SHUFFLE_SIMD:
     case IrCmd::BUFFER_READSIMD256:
-    case IrCmd::BUFFER_WRITESIMD256:
     case IrCmd::ADD_SIMD256:
     case IrCmd::SUB_SIMD256:
     case IrCmd::AND_SIMD256:

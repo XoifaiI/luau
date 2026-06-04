@@ -252,6 +252,18 @@ static int simd_fextract(lua_State* L)
     return 1;
 }
 
+static int simd_fsplat(lua_State* L)
+{
+    float f = (float)luaL_checknumber(L, 1);
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof(float));
+
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 4; i++)
+        r[i] = bits;
+    return 1;
+}
+
 // 8-wide (256-bit) interpreter implementations: the same integer lane ops over all 8 lanes. The boxed
 // value uses all 8 lanes of the shared 32-byte object. Native code keeps these in ymm registers.
 #define SIMD256_BINOP(name, expr) \
@@ -456,6 +468,41 @@ static int simd256_extract(lua_State* L)
     return 1;
 }
 
+static int simd256_fcreate(lua_State* L)
+{
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+    {
+        float f = (float)luaL_checknumber(L, i + 1);
+        memcpy(&r[i], &f, sizeof(float));
+    }
+    return 1;
+}
+
+static int simd256_fsplat(lua_State* L)
+{
+    float f = (float)luaL_checknumber(L, 1);
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof(float));
+
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = bits;
+    return 1;
+}
+
+static int simd256_fextract(lua_State* L)
+{
+    const uint32_t* v = luaL_checksimd(L, 1);
+    int i = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(i) < 8, 2, "lane index out of range [0, 7]");
+
+    float f;
+    memcpy(&f, &v[i], sizeof(float));
+    lua_pushnumber(L, f);
+    return 1;
+}
+
 static const luaL_Reg simd256lib[] = {
     {"create", simd256_create},
     {"splat", simd256_splat},
@@ -513,12 +560,94 @@ static const luaL_Reg simdlib[] = {
     {NULL, NULL},
 };
 
+// Element-typed namespaces matching the buffer suffixes (u32x4/f32x4/u32x8/f32x8). These reuse the same boxed
+// values and C implementations as simd/simd256; the element type is in the namespace, so the float ops drop the
+// 'f' prefix (f32x4.add, not simd.fadd). simd/simd256 stay registered as deprecated aliases.
+static const luaL_Reg u32x4lib[] = {
+    {"create", simd_create},
+    {"splat", simd_splat},
+    {"extract", simd_extract},
+    {"add", simd_add},
+    {"sub", simd_sub},
+    {"mul", simd_mul},
+    {"band", simd_band},
+    {"bor", simd_bor},
+    {"bxor", simd_bxor},
+    {"bnot", simd_bnot},
+    {"shl", simd_shl},
+    {"shr", simd_shr},
+    {"rotl", simd_rotl},
+    {"shuffle", simd_shuffle},
+    {"tofloat", simd_tofloat},
+    {NULL, NULL},
+};
+
+static const luaL_Reg f32x4lib[] = {
+    {"create", simd_fcreate},
+    {"splat", simd_fsplat},
+    {"extract", simd_fextract},
+    {"add", simd_fadd},
+    {"sub", simd_fsub},
+    {"mul", simd_fmul},
+    {"div", simd_fdiv},
+    {"min", simd_fmin},
+    {"max", simd_fmax},
+    {"sqrt", simd_fsqrt},
+    {"fma", simd_fma},
+    {"toint", simd_toint},
+    {NULL, NULL},
+};
+
+static const luaL_Reg u32x8lib[] = {
+    {"create", simd256_create},
+    {"splat", simd256_splat},
+    {"extract", simd256_extract},
+    {"add", simd256_add},
+    {"sub", simd256_sub},
+    {"band", simd256_band},
+    {"bor", simd256_bor},
+    {"bxor", simd256_bxor},
+    {"bnot", simd256_bnot},
+    {"shl", simd256_shl},
+    {"shr", simd256_shr},
+    {"rotl", simd256_rotl},
+    {"shuffle", simd256_shuffle},
+    {"tofloat", simd256_tofloat},
+    {NULL, NULL},
+};
+
+static const luaL_Reg f32x8lib[] = {
+    {"create", simd256_fcreate},
+    {"splat", simd256_fsplat},
+    {"extract", simd256_fextract},
+    {"add", simd256_fadd},
+    {"sub", simd256_fsub},
+    {"mul", simd256_fmul},
+    {"div", simd256_fdiv},
+    {"min", simd256_fmin},
+    {"max", simd256_fmax},
+    {"sqrt", simd256_fsqrt},
+    {"fma", simd256_fma},
+    {"toint", simd256_toint},
+    {NULL, NULL},
+};
+
 int luaopen_simd(lua_State* L)
 {
-    luaL_register(L, LUA_SIMDLIBNAME, simdlib);
+    // element-typed namespaces (preferred)
+    luaL_register(L, "u32x4", u32x4lib);
+    lua_pop(L, 1);
+    luaL_register(L, "f32x4", f32x4lib);
+    lua_pop(L, 1);
+    luaL_register(L, "u32x8", u32x8lib);
+    lua_pop(L, 1);
+    luaL_register(L, "f32x8", f32x8lib);
+    lua_pop(L, 1);
 
+    // deprecated aliases
     luaL_register(L, "simd256", simd256lib);
-    lua_pop(L, 1); // leave only the simd table as the result; simd256 stays registered as a global
+    lua_pop(L, 1);
 
+    luaL_register(L, LUA_SIMDLIBNAME, simdlib);
     return 1;
 }

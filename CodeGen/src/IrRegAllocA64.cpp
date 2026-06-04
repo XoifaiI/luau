@@ -67,7 +67,7 @@ static int allocSpill256(uint64_t& free)
     uint64_t search = free & (free >> 1) & (free >> 2) & (free >> 3);
 
     int slot = countrz(search);
-    if (slot == 64 || slot + 3 >= kSpillSlots)
+    if (slot == 64 || slot + 3 >= int(kSpillSlots))
         return -1;
 
     uint64_t mask = 0xfull << (unsigned long long)slot;
@@ -326,6 +326,11 @@ void IrRegAllocA64::freeLastUseRegs(const IrInst& inst, uint32_t index)
 
 void IrRegAllocA64::recordAndFreeLastUse(uint32_t blockIdx, IrInst& target, uint32_t originInstIdx)
 {
+    // A Simd256 value occupies a PAIR of q registers (low + high), or a 4-dword spill slot. Both halves must be
+    // captured here and re-established in setupExitSyncEntry, otherwise the high half is lost across the VM-exit
+    // block and a later spill of the value tries to store a noreg high half.
+    bool wide = getCmdValueKind(target.cmd) == IrValueKind::Simd256;
+
     ExitSyncArgA64 arg;
     arg.instIdx = function.getInstIndex(target);
 
@@ -338,6 +343,7 @@ void IrRegAllocA64::recordAndFreeLastUse(uint32_t blockIdx, IrInst& target, uint
                 const Spill& s = spills[i];
 
                 arg.originalReg = s.origin;
+                arg.originalRegHi = s.originHi;
                 arg.slot = s.slot;
 
                 // Capture restore location state at the current instruction
@@ -348,7 +354,12 @@ void IrRegAllocA64::recordAndFreeLastUse(uint32_t blockIdx, IrInst& target, uint
                 if (target.lastUse == originInstIdx && !target.reusedReg)
                 {
                     if (arg.slot >= 0)
-                        freeSpill(freeSpillSlots, s.origin.kind, s.slot);
+                    {
+                        if (wide)
+                            freeSpill256(freeSpillSlots, s.slot);
+                        else
+                            freeSpill(freeSpillSlots, s.origin.kind, s.slot);
+                    }
 
                     CODEGEN_ASSERT(target.regA64 == noreg);
                     target.spilled = false;
@@ -368,8 +379,20 @@ void IrRegAllocA64::recordAndFreeLastUse(uint32_t blockIdx, IrInst& target, uint
         arg.reg = target.regA64;
         arg.originalReg = target.regA64;
 
+        if (wide)
+        {
+            arg.regHi = target.regA64Hi;
+            arg.originalRegHi = target.regA64Hi;
+        }
+
         if (target.lastUse == originInstIdx && !target.reusedReg)
         {
+            if (wide && target.regA64Hi != noreg)
+            {
+                freeReg(target.regA64Hi);
+                target.regA64Hi = noreg;
+            }
+
             freeReg(target.regA64);
             target.regA64 = noreg;
         }
@@ -414,27 +437,49 @@ void IrRegAllocA64::setupExitSyncEntry(uint32_t blockIdx)
     {
         IrInst& inst = function.instructions[arg.instIdx];
 
+        bool wide = getCmdValueKind(inst.cmd) == IrValueKind::Simd256;
+
         inst.reusedReg = false;
         inst.needsReload = false;
         inst.spilled = false;
+        inst.regA64Hi = noreg;
 
         if (arg.reg != noreg)
         {
             inst.regA64 = arg.reg;
-
             takeReg(arg.reg, arg.instIdx);
+
+            // A Simd256 value also lives in a high-half q register; re-take it so the pair stays intact
+            if (wide)
+            {
+                inst.regA64Hi = arg.regHi;
+                takeReg(arg.regHi, arg.instIdx);
+            }
         }
         else if (arg.slot >= 0)
         {
             inst.regA64 = noreg;
             inst.spilled = true;
 
-            spills.push_back({arg.instIdx, arg.originalReg, arg.slot});
+            // Simd256 spills occupy a 4-dword slot (low q at slot, high q at slot + 2) and need the high origin so
+            // restore() can reload the pair; other kinds use the narrow record.
+            if (wide)
+            {
+                spills.push_back({arg.instIdx, arg.originalReg, arg.slot, arg.originalRegHi});
 
-            // Mark the spill slot as occupied so restore() can free it
-            uint64_t mask = (arg.originalReg.kind == KindA64::q ? 3ull : 1ull) << (unsigned long long)arg.slot;
-            CODEGEN_ASSERT((freeSpillSlots & mask) == mask);
-            freeSpillSlots &= ~mask;
+                uint64_t mask = 0xfull << (unsigned long long)arg.slot;
+                CODEGEN_ASSERT((freeSpillSlots & mask) == mask);
+                freeSpillSlots &= ~mask;
+            }
+            else
+            {
+                spills.push_back({arg.instIdx, arg.originalReg, arg.slot});
+
+                // Mark the spill slot as occupied so restore() can free it
+                uint64_t mask = (arg.originalReg.kind == KindA64::q ? 3ull : 1ull) << (unsigned long long)arg.slot;
+                CODEGEN_ASSERT((freeSpillSlots & mask) == mask);
+                freeSpillSlots &= ~mask;
+            }
         }
         else
         {
@@ -445,7 +490,7 @@ void IrRegAllocA64::setupExitSyncEntry(uint32_t blockIdx)
             // Later instructions in the source block may have invalidated it in IrValueLocationTracking
             function.recordRestoreLocation(arg.instIdx, arg.restoreLocation);
 
-            spills.push_back({arg.instIdx, arg.originalReg, arg.slot});
+            spills.push_back({arg.instIdx, arg.originalReg, arg.slot, arg.originalRegHi});
         }
     }
 }

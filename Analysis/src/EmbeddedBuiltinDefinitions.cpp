@@ -415,6 +415,73 @@ declare simd256: {
     toint: @checked (a: simd) -> simd,
 }
 
+-- Element-typed namespaces matching the buffer suffixes (preferred over simd/simd256). Same opaque value type;
+-- the element type is in the namespace, so float ops drop the 'f' prefix (f32x4.add, not simd.fadd).
+declare u32x4: {
+    create: @checked (a: number, b: number, c: number, d: number) -> simd,
+    splat: @checked (v: number) -> simd,
+    extract: @checked (v: simd, index: number) -> number,
+    add: @checked (a: simd, b: simd) -> simd,
+    sub: @checked (a: simd, b: simd) -> simd,
+    mul: @checked (a: simd, b: simd) -> simd,
+    band: @checked (a: simd, b: simd) -> simd,
+    bor: @checked (a: simd, b: simd) -> simd,
+    bxor: @checked (a: simd, b: simd) -> simd,
+    bnot: @checked (a: simd) -> simd,
+    shl: @checked (a: simd, count: number) -> simd,
+    shr: @checked (a: simd, count: number) -> simd,
+    rotl: @checked (a: simd, count: number) -> simd,
+    shuffle: @checked (v: simd, control: number) -> simd,
+    tofloat: @checked (a: simd) -> simd,
+}
+
+declare f32x4: {
+    create: @checked (a: number, b: number, c: number, d: number) -> simd,
+    splat: @checked (v: number) -> simd,
+    extract: @checked (v: simd, index: number) -> number,
+    add: @checked (a: simd, b: simd) -> simd,
+    sub: @checked (a: simd, b: simd) -> simd,
+    mul: @checked (a: simd, b: simd) -> simd,
+    div: @checked (a: simd, b: simd) -> simd,
+    min: @checked (a: simd, b: simd) -> simd,
+    max: @checked (a: simd, b: simd) -> simd,
+    sqrt: @checked (a: simd) -> simd,
+    fma: @checked (a: simd, b: simd, c: simd) -> simd,
+    toint: @checked (a: simd) -> simd,
+}
+
+declare u32x8: {
+    create: @checked (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) -> simd,
+    splat: @checked (v: number) -> simd,
+    extract: @checked (v: simd, index: number) -> number,
+    add: @checked (a: simd, b: simd) -> simd,
+    sub: @checked (a: simd, b: simd) -> simd,
+    band: @checked (a: simd, b: simd) -> simd,
+    bor: @checked (a: simd, b: simd) -> simd,
+    bxor: @checked (a: simd, b: simd) -> simd,
+    bnot: @checked (a: simd) -> simd,
+    shl: @checked (a: simd, count: number) -> simd,
+    shr: @checked (a: simd, count: number) -> simd,
+    rotl: @checked (a: simd, count: number) -> simd,
+    shuffle: @checked (v: simd, control: number) -> simd,
+    tofloat: @checked (a: simd) -> simd,
+}
+
+declare f32x8: {
+    create: @checked (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) -> simd,
+    splat: @checked (v: number) -> simd,
+    extract: @checked (v: simd, index: number) -> number,
+    add: @checked (a: simd, b: simd) -> simd,
+    sub: @checked (a: simd, b: simd) -> simd,
+    mul: @checked (a: simd, b: simd) -> simd,
+    div: @checked (a: simd, b: simd) -> simd,
+    min: @checked (a: simd, b: simd) -> simd,
+    max: @checked (a: simd, b: simd) -> simd,
+    sqrt: @checked (a: simd) -> simd,
+    fma: @checked (a: simd, b: simd, c: simd) -> simd,
+    toint: @checked (a: simd) -> simd,
+}
+
 )BUILTIN_SRC";
 
 static const char* const kBuiltinDefinitionVectorSrc = R"BUILTIN_SRC(

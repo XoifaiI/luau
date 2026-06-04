@@ -29,6 +29,10 @@ struct ExitSyncArgA64
     RegisterA64 reg = noreg;
     int8_t slot = kNoSpillSlot;
     RegisterA64 originalReg = noreg;
+    // High-half registers for an IrValueKind::Simd256 value carried across a VM-exit block (it occupies a PAIR of q
+    // registers / a 4-dword spill slot). noreg for every other value kind.
+    RegisterA64 regHi = noreg;
+    RegisterA64 originalRegHi = noreg;
     ValueRestoreLocation restoreLocation;
 };
 

@@ -383,6 +383,17 @@ IrLoweringA64::IrLoweringA64(AssemblyBuilderA64& build, ModuleHelpers& helpers, 
             if (inst.cmd == IrCmd::LOAD_SIMD || inst.cmd == IrCmd::LOAD_SIMD256)
                 continue;
 
+            // A call clobbers its whole frame (from the call base register upward), not just the nominal result
+            // registers: the callee leaves stale values there, and those can be SIMD boxes still aliased with the
+            // call's result (e.g. `local a,b,c = mk(),mk(),mk()` leaves a copy of c's box in a higher frame slot).
+            // If such a slot is later used for a fresh SIMD value, box reuse would overwrite the alias and corrupt
+            // the live result. Mark the entire clobber range as escaping so those slots fall back to fresh boxes.
+            if (inst.cmd == IrCmd::CALL)
+            {
+                for (int i = vmRegOp(OP_A(inst)); i < 256; i++)
+                    escapes[i] = true;
+            }
+
             // Commands the visitor does not model only read registers for guards/branches and cannot escape a box.
             if (!visitorModelsVmRegDefsUses(inst.cmd))
                 continue;
@@ -4029,8 +4040,6 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
 
     // 8-wide (AVX2 ymm on x64) SIMD value ops, emulated on A64 as a PAIR of 128-bit NEON q registers (regA64 = low
     // 4 lanes, regA64Hi = high 4 lanes). NEON has no 256-bit register, so every op is two of the 128-bit forms.
-    // There's no throughput edge over the 4-wide path on ARM; this keeps portable simd256 code native (not the
-    // interpreter) on ARM.
     case IrCmd::BUFFER_READSIMD256:
     {
         RegisterA64 hi;
@@ -4067,7 +4076,6 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     }
     case IrCmd::STORE_SIMD256:
     {
-        // Same shape as STORE_SIMD: extend OP_B's lifetime so both halves spill reloadably across the alloc call.
         IrInst& valueInst = function.instOp(OP_B(inst));
         uint32_t savedLastUse = valueInst.lastUse;
         valueInst.lastUse = index + 1;
@@ -4226,7 +4234,6 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     }
     case IrCmd::SHUFFLE_SIMD256:
     {
-        // vpshufd applies the selector within each 128-bit lane, so both halves use the same tbl index
         RegisterA64 hi;
         inst.regA64 = regs.allocReg256(index, hi);
         inst.regA64Hi = hi;
@@ -4251,7 +4258,6 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     case IrCmd::FMIN_SIMD256:
     case IrCmd::FMAX_SIMD256:
     {
-        // SSE vminps/vmaxps semantics via fcmgt + select, applied to each half (see the 4-wide FMIN/FMAX)
         RegisterA64 hi;
         inst.regA64 = regs.allocReg256(index, hi);
         inst.regA64Hi = hi;
@@ -4260,14 +4266,12 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         RegisterA64 mask = regs.allocTemp(KindA64::q);
 
         bool isMin = inst.cmd == IrCmd::FMIN_SIMD256;
-        // low half
         if (isMin)
             build.fcmgt_4s(mask, bLo, aLo);
         else
             build.fcmgt_4s(mask, aLo, bLo);
         build.mov(inst.regA64, bLo);
         build.bit(inst.regA64, aLo, mask);
-        // high half
         if (isMin)
             build.fcmgt_4s(mask, bHi, aHi);
         else
