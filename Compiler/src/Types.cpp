@@ -806,6 +806,18 @@ struct TypeMapVisitor : AstVisitor
             case LBF_SIMD_TOFLOAT:
             case LBF_SIMD_TOINT:
             case LBF_SIMD_SHUFFLE:
+            case LBF_BUFFER_READSIMD256:
+            case LBF_BUFFER_WRITESIMD256:
+            case LBF_SIMD256_ADD:
+            case LBF_SIMD256_SUB:
+            case LBF_SIMD256_BAND:
+            case LBF_SIMD256_BOR:
+            case LBF_SIMD256_BXOR:
+            case LBF_SIMD256_BNOT:
+            case LBF_SIMD256_SHL:
+            case LBF_SIMD256_SHR:
+            case LBF_SIMD256_ROTL:
+            case LBF_SIMD256_SHUFFLE:
                 break;
             case LBF_MATH_ABS:
             case LBF_MATH_ACOS:

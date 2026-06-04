@@ -583,6 +583,34 @@ const char* getCmdName(IrCmd cmd)
         return "TOINT_SIMD";
     case IrCmd::SHUFFLE_SIMD:
         return "SHUFFLE_SIMD";
+    case IrCmd::BUFFER_READSIMD256:
+        return "BUFFER_READSIMD256";
+    case IrCmd::BUFFER_WRITESIMD256:
+        return "BUFFER_WRITESIMD256";
+    case IrCmd::LOAD_SIMD256:
+        return "LOAD_SIMD256";
+    case IrCmd::STORE_SIMD256:
+        return "STORE_SIMD256";
+    case IrCmd::ADD_SIMD256:
+        return "ADD_SIMD256";
+    case IrCmd::SUB_SIMD256:
+        return "SUB_SIMD256";
+    case IrCmd::AND_SIMD256:
+        return "AND_SIMD256";
+    case IrCmd::OR_SIMD256:
+        return "OR_SIMD256";
+    case IrCmd::XOR_SIMD256:
+        return "XOR_SIMD256";
+    case IrCmd::NOT_SIMD256:
+        return "NOT_SIMD256";
+    case IrCmd::SHL_SIMD256:
+        return "SHL_SIMD256";
+    case IrCmd::SHR_SIMD256:
+        return "SHR_SIMD256";
+    case IrCmd::ROTL_SIMD256:
+        return "ROTL_SIMD256";
+    case IrCmd::SHUFFLE_SIMD256:
+        return "SHUFFLE_SIMD256";
     case IrCmd::JUMP_CMP_PROTOID:
         return "JUMP_CMP_PROTOID";
     }

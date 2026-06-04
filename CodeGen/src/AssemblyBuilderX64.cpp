@@ -1120,7 +1120,9 @@ void AssemblyBuilderX64::vpslld(RegisterX64 dst, RegisterX64 src, uint8_t shift)
     if (logText)
         log("vpslld", dst, src, shift);
 
-    placeVex(xmm0, dst, src, false, AVX_0F, AVX_66);
+    // The first placeVex operand only supplies VEX.R (index 0 -> the /6 group digit) and the 256-bit L bit, so
+    // it must carry the operand width (ymm for an 8-wide shift) while staying register index 0.
+    placeVex(RegisterX64{src.size, 0}, dst, src, false, AVX_0F, AVX_66);
     place(0x72);
     placeModRegMem(src, 6, /*extraCodeBytes=*/1);
     placeImm8(shift);
@@ -1134,7 +1136,7 @@ void AssemblyBuilderX64::vpsrld(RegisterX64 dst, RegisterX64 src, uint8_t shift)
     if (logText)
         log("vpsrld", dst, src, shift);
 
-    placeVex(xmm0, dst, src, false, AVX_0F, AVX_66);
+    placeVex(RegisterX64{src.size, 0}, dst, src, false, AVX_0F, AVX_66);
     place(0x72);
     placeModRegMem(src, 2, /*extraCodeBytes=*/1);
     placeImm8(shift);
@@ -1148,7 +1150,7 @@ void AssemblyBuilderX64::vpsrad(RegisterX64 dst, RegisterX64 src, uint8_t shift)
     if (logText)
         log("vpsrad", dst, src, shift);
 
-    placeVex(xmm0, dst, src, false, AVX_0F, AVX_66);
+    placeVex(RegisterX64{src.size, 0}, dst, src, false, AVX_0F, AVX_66);
     place(0x72);
     placeModRegMem(src, 4, /*extraCodeBytes=*/1);
     placeImm8(shift);

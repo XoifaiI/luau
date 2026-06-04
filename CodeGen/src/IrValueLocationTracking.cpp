@@ -95,6 +95,7 @@ void IrValueLocationTracking::beforeInstLowering(IrInst& inst)
     case IrCmd::STORE_TVALUE:
     case IrCmd::STORE_SPLIT_TVALUE:
     case IrCmd::STORE_SIMD:
+    case IrCmd::STORE_SIMD256:
         invalidateRestoreOp(OP_A(inst), /*skipValueInvalidation*/ false);
         break;
     case IrCmd::ADJUST_STACK_TO_REG:
@@ -153,6 +154,7 @@ void IrValueLocationTracking::beforeInstLowering(IrInst& inst)
     case IrCmd::LOAD_FLOAT:
     case IrCmd::LOAD_TVALUE:
     case IrCmd::LOAD_SIMD:
+    case IrCmd::LOAD_SIMD256:
     case IrCmd::CMP_ANY:
     case IrCmd::CMP_TAG:
     case IrCmd::JUMP_IF_TRUTHY:
@@ -226,6 +228,7 @@ void IrValueLocationTracking::afterInstLowering(IrInst& inst, uint32_t instIdx)
     case IrCmd::STORE_INT64:
     case IrCmd::STORE_TVALUE:
     case IrCmd::STORE_SIMD:
+    case IrCmd::STORE_SIMD256:
         // If this is not the last use of the stored value, we can restore it from this new location
         // Additionally, even if it's a last use, it might allow its argument to be restored
         if (OP_B(inst).kind == IrOpKind::Inst)

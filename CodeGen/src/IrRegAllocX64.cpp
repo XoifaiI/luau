@@ -17,10 +17,16 @@ namespace CodeGen
 namespace X64
 {
 
-static constexpr unsigned kValueDwordSize[] = {0, 0, 1, 1, 2, 2, 1, 2, 4, 4};
+static constexpr unsigned kValueDwordSize[] = {0, 0, 1, 1, 2, 2, 1, 2, 4, 4, 8};
 static_assert(sizeof(kValueDwordSize) / sizeof(kValueDwordSize[0]) == size_t(IrValueKind::Count), "all kinds have to be covered");
 
 static const RegisterX64 kGprAllocOrder[] = {rax, rdx, rcx, rbx, rsi, rdi, r8, r9, r10, r11};
+
+// xmm and ymm share the same 16 physical registers (ymmN aliases xmmN), so both are allocated from the xmm pool.
+static bool isVectorSize(SizeX64 size)
+{
+    return size == SizeX64::xmmword || size == SizeX64::ymmword;
+}
 
 IrRegAllocX64::IrRegAllocX64(AssemblyBuilderX64& build, IrFunction& function, LoweringStats* stats)
     : build(build)
@@ -39,7 +45,7 @@ RegisterX64 IrRegAllocX64::allocReg(SizeX64 size, uint32_t instIdx)
     if (FFlag::LuauCodegenVmExitSync)
         allocActionCount++;
 
-    if (size == SizeX64::xmmword)
+    if (isVectorSize(size))
     {
         for (size_t i = 0; i < usableXmmRegCount; ++i)
         {
@@ -65,7 +71,7 @@ RegisterX64 IrRegAllocX64::allocReg(SizeX64 size, uint32_t instIdx)
     }
 
     // Out of registers, spill the value with the furthest next use
-    const std::array<uint32_t, 16>& regInstUsers = size == SizeX64::xmmword ? xmmInstUsers : gprInstUsers;
+    const std::array<uint32_t, 16>& regInstUsers = isVectorSize(size) ? xmmInstUsers : gprInstUsers;
     if (uint32_t furthestUseTarget = findInstructionWithFurthestNextUse(regInstUsers); furthestUseTarget != kInvalidInstIdx)
     {
         RegisterX64 reg = function.instructions[furthestUseTarget].regX64;
@@ -90,14 +96,14 @@ RegisterX64 IrRegAllocX64::allocRegOrReuse(SizeX64 size, uint32_t instIdx, std::
         if (source.lastUse == instIdx && !source.reusedReg && !source.spilled && !source.needsReload)
         {
             // Not comparing size directly because we only need matching register set
-            if ((size == SizeX64::xmmword) != (source.regX64.size == SizeX64::xmmword))
+            if (isVectorSize(size) != isVectorSize(source.regX64.size))
                 continue;
 
             CODEGEN_ASSERT(source.regX64 != noreg);
 
             source.reusedReg = true;
 
-            if (size == SizeX64::xmmword)
+            if (isVectorSize(size))
                 xmmInstUsers[source.regX64.index] = instIdx;
             else
                 gprInstUsers[source.regX64.index] = instIdx;
@@ -111,7 +117,7 @@ RegisterX64 IrRegAllocX64::allocRegOrReuse(SizeX64 size, uint32_t instIdx, std::
 
 RegisterX64 IrRegAllocX64::takeReg(RegisterX64 reg, uint32_t instIdx)
 {
-    if (reg.size == SizeX64::xmmword)
+    if (isVectorSize(reg.size))
     {
         if (!freeXmmMap[reg.index])
         {
@@ -141,15 +147,15 @@ RegisterX64 IrRegAllocX64::takeReg(RegisterX64 reg, uint32_t instIdx)
 
 bool IrRegAllocX64::canTakeReg(RegisterX64 reg) const
 {
-    const std::array<bool, 16>& freeMap = reg.size == SizeX64::xmmword ? freeXmmMap : freeGprMap;
-    const std::array<uint32_t, 16>& instUsers = reg.size == SizeX64::xmmword ? xmmInstUsers : gprInstUsers;
+    const std::array<bool, 16>& freeMap = isVectorSize(reg.size) ? freeXmmMap : freeGprMap;
+    const std::array<uint32_t, 16>& instUsers = isVectorSize(reg.size) ? xmmInstUsers : gprInstUsers;
 
     return freeMap[reg.index] || instUsers[reg.index] != kInvalidInstIdx;
 }
 
 void IrRegAllocX64::freeReg(RegisterX64 reg)
 {
-    if (reg.size == SizeX64::xmmword)
+    if (isVectorSize(reg.size))
     {
         CODEGEN_ASSERT(!freeXmmMap[reg.index]);
         freeXmmMap[reg.index] = true;
@@ -331,7 +337,8 @@ void IrRegAllocX64::preserve(IrInst& inst)
     // When checking if value has a restore operation to spill it, we only allow it in the same block.
     // A SIMD value's restore location is its slot, but on the hot path that slot is unboxed (nil): its lane
     // data only exists in a register, so it must be spilled to raw scratch and never restored from the slot.
-    if (!function.hasRestoreLocation(inst, /*limitToCurrentBlock*/ true) || spill.valueKind == IrValueKind::Simd)
+    if (!function.hasRestoreLocation(inst, /*limitToCurrentBlock*/ true) || spill.valueKind == IrValueKind::Simd ||
+        spill.valueKind == IrValueKind::Simd256)
     {
         unsigned i = findSpillStackSlot(spill.valueKind);
 
@@ -341,14 +348,16 @@ void IrRegAllocX64::preserve(IrInst& inst)
 
             // Tricky situation, no registers left, but need a register to calculate an address
             // We will try to take r11 unless it's actually the register being spilled
-            RegisterX64 emergencyTemp = inst.regX64.size == SizeX64::xmmword || inst.regX64.index != 11 ? r11 : r10;
+            RegisterX64 emergencyTemp = isVectorSize(inst.regX64.size) || inst.regX64.index != 11 ? r11 : r10;
 
             build.mov(qword[sTemporarySlot + 0], emergencyTemp);
 
             build.mov(emergencyTemp, qword[rState + offsetof(lua_State, global)]);
             build.lea(emergencyTemp, addr[emergencyTemp + offsetof(global_State, ecbdata) + extraOffset]);
 
-            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
+            if (spill.valueKind == IrValueKind::Simd256)
+                build.vmovups(ymmword[emergencyTemp], inst.regX64);
+            else if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
                 build.vmovups(xmmword[emergencyTemp], inst.regX64);
             else if (spill.valueKind == IrValueKind::Double)
                 build.vmovsd(qword[emergencyTemp], inst.regX64);
@@ -365,7 +374,9 @@ void IrRegAllocX64::preserve(IrInst& inst)
         }
         else
         {
-            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
+            if (spill.valueKind == IrValueKind::Simd256)
+                build.vmovups(ymmword[sSpillArea + i * 4], inst.regX64);
+            else if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
                 build.vmovups(xmmword[sSpillArea + i * 4], inst.regX64);
             else if (spill.valueKind == IrValueKind::Double)
                 build.vmovsd(qword[sSpillArea + i * 4], inst.regX64);
@@ -450,7 +461,7 @@ void IrRegAllocX64::restore(IrInst& inst, bool intoOriginalLocation)
 
             OperandX64 restoreAddr = noreg;
 
-            RegisterX64 emergencyTemp = reg.size == SizeX64::xmmword ? r11 : qwordReg(reg);
+            RegisterX64 emergencyTemp = isVectorSize(reg.size) ? r11 : qwordReg(reg);
 
             // Previous call might have relocated the spill vector, so this reference can't be taken earlier
             const IrSpillX64& spill = spills[i];
@@ -462,7 +473,7 @@ void IrRegAllocX64::restore(IrInst& inst, bool intoOriginalLocation)
                     int extraOffset = getExtraSpillAddressOffset(spill.stackSlot);
 
                     // Need to calculate an address, but everything might be taken
-                    if (reg.size == SizeX64::xmmword)
+                    if (isVectorSize(reg.size))
                         build.mov(qword[sTemporarySlot + 0], emergencyTemp);
 
                     build.mov(emergencyTemp, qword[rState + offsetof(lua_State, global)]);
@@ -492,7 +503,7 @@ void IrRegAllocX64::restore(IrInst& inst, bool intoOriginalLocation)
                 restoreAddr = getRestoreAddress(inst, restoreLocation);
             }
 
-            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
+            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd || spill.valueKind == IrValueKind::Simd256)
             {
                 build.vmovups(reg, restoreAddr);
             }
@@ -526,7 +537,7 @@ void IrRegAllocX64::restore(IrInst& inst, bool intoOriginalLocation)
 
             if (spill.stackSlot != kNoStackSlot && isExtraSpillSlot(spill.stackSlot))
             {
-                if (reg.size == SizeX64::xmmword)
+                if (isVectorSize(reg.size))
                     build.mov(emergencyTemp, qword[sTemporarySlot + 0]);
             }
 
@@ -561,7 +572,7 @@ bool IrRegAllocX64::shouldFreeGpr(RegisterX64 reg) const
     if (reg == noreg)
         return false;
 
-    CODEGEN_ASSERT(reg.size != SizeX64::xmmword);
+    CODEGEN_ASSERT(!isVectorSize(reg.size));
 
     for (RegisterX64 gpr : kGprAllocOrder)
     {
@@ -589,9 +600,9 @@ unsigned IrRegAllocX64::findSpillStackSlot(IrValueKind valueKind)
         unsigned numHalves = kValueDwordSize[int(valueKind)];
         unsigned boundary = kSpillSlots * 2;
 
-        // Find a free stack slot. Four consecutive slots might be required for 16 byte TValues, so '- 3' is used
-        // For 8 and 16 byte types we search in steps of 2 to return slot indices aligned by 2
-        for (unsigned i = 0; i < unsigned(usedSpillSlotHalfs.size() - 3); i += 2)
+        // Find numHalves consecutive free dword slots (8 for a 32-byte Simd256, 4 for a 16-byte TValue/Simd,
+        // 2 for an 8-byte double/int64). We search in steps of 2 to keep slot indices aligned by 2.
+        for (unsigned i = 0; i + numHalves <= unsigned(usedSpillSlotHalfs.size()); i += 2)
         {
             // Prevent large value from allocating at stack/extra spill storage boundary
             if (i < boundary && i + numHalves > boundary)
@@ -600,17 +611,18 @@ unsigned IrRegAllocX64::findSpillStackSlot(IrValueKind valueKind)
                 continue;
             }
 
-            if (usedSpillSlotHalfs.test(i) || usedSpillSlotHalfs.test(i + 1))
-                continue;
-
-            if (valueKind == IrValueKind::Tvalue || valueKind == IrValueKind::Simd)
+            bool free = true;
+            for (unsigned j = 0; j < numHalves; j++)
             {
-                if (usedSpillSlotHalfs.test(i + 2) || usedSpillSlotHalfs.test(i + 3))
+                if (usedSpillSlotHalfs.test(i + j))
                 {
-                    i += 2; // No need to retest this double position
-                    continue;
+                    free = false;
+                    break;
                 }
             }
+
+            if (!free)
+                continue;
 
             return i;
         }
@@ -699,7 +711,7 @@ int IrRegAllocX64::getExtraSpillAddressOffset(unsigned slot) const
 
 void IrRegAllocX64::assertFree(RegisterX64 reg) const
 {
-    if (reg.size == SizeX64::xmmword)
+    if (isVectorSize(reg.size))
         CODEGEN_ASSERT(freeXmmMap[reg.index]);
     else
         CODEGEN_ASSERT(freeGprMap[reg.index]);

@@ -171,7 +171,7 @@ IrLoweringX64::IrLoweringX64(AssemblyBuilderX64& build, ModuleHelpers& helpers, 
     bool anySimdStore = false;
     for (IrInst& inst : function.instructions)
     {
-        if (inst.cmd == IrCmd::STORE_SIMD)
+        if (inst.cmd == IrCmd::STORE_SIMD || inst.cmd == IrCmd::STORE_SIMD256)
         {
             anySimdStore = true;
             break;
@@ -191,13 +191,13 @@ IrLoweringX64::IrLoweringX64(AssemblyBuilderX64& build, ModuleHelpers& helpers, 
                 continue;
 
             // LOAD_SIMD reads lane data and STORE_SIMD writes it: neither exposes the box as an aliasable TValue
-            if (inst.cmd == IrCmd::STORE_SIMD)
+            if (inst.cmd == IrCmd::STORE_SIMD || inst.cmd == IrCmd::STORE_SIMD256)
             {
                 if (OP_A(inst).kind == IrOpKind::VmReg)
                     hasSimdStore[vmRegOp(OP_A(inst))] = true;
                 continue;
             }
-            if (inst.cmd == IrCmd::LOAD_SIMD)
+            if (inst.cmd == IrCmd::LOAD_SIMD || inst.cmd == IrCmd::LOAD_SIMD256)
                 continue;
 
             // Commands the visitor does not model only read registers for guards/branches and cannot escape a box.
@@ -3630,6 +3630,118 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         else
         {
             ScopedRegX64 tmp{regs, SizeX64::xmmword};
+            build.vpslld(tmp.reg, regOp(OP_A(inst)), n);
+            build.vpsrld(inst.regX64, regOp(OP_A(inst)), uint8_t(32 - n));
+            build.vpor(inst.regX64, inst.regX64, tmp.reg);
+        }
+        break;
+    }
+
+    // 256-bit (8-wide, AVX2 ymm) value ops. Identical shapes to the 128-bit forms above; passing ymm-sized
+    // registers makes the shared VEX encoders emit the .256 forms. vpshufd/the shuffle operate within each
+    // 128-bit lane (per-block for a 2-block layout). ROTL here always uses shift+or (the vpshufb byte-rotate
+    // fast path for n==8/16 needs a 256-bit mask and is a later optimization).
+    case IrCmd::BUFFER_READSIMD256:
+        inst.regX64 = regs.allocReg(SizeX64::ymmword, index);
+        build.vmovups(inst.regX64, ymmword[bufferAddrOp(OP_A(inst), OP_B(inst), tagOp(OP_C(inst)))]);
+        break;
+
+    case IrCmd::BUFFER_WRITESIMD256:
+        build.vmovups(ymmword[bufferAddrOp(OP_A(inst), OP_B(inst), tagOp(OP_D(inst)))], regOp(OP_C(inst)));
+        break;
+
+    case IrCmd::LOAD_SIMD256:
+    {
+        inst.regX64 = regs.allocReg(SizeX64::ymmword, index);
+
+        ScopedRegX64 ptr{regs, SizeX64::qword};
+        build.mov(ptr.reg, luauRegValue(vmRegOp(OP_A(inst))));
+        build.vmovups(inst.regX64, ymmword[ptr.reg + offsetof(Simd, data)]);
+        break;
+    }
+
+    case IrCmd::STORE_SIMD256:
+    {
+        if (OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))])
+        {
+            IrCallWrapperX64 callWrap(regs, build, index);
+            callWrap.addArgument(SizeX64::qword, rState);
+            callWrap.addArgument(SizeX64::qword, luauRegAddress(vmRegOp(OP_A(inst))));
+            callWrap.call(qword[rNativeContext + offsetof(NativeContext, luaSimd_storeReuse)]);
+
+            RegisterX64 obj = regs.takeReg(rax, kInvalidInstIdx);
+            build.vmovups(ymmword[obj + offsetof(Simd, data)], regOp(OP_B(inst)));
+            regs.freeReg(obj);
+            break;
+        }
+
+        IrCallWrapperX64 callWrap(regs, build, index);
+        callWrap.addArgument(SizeX64::qword, rState);
+        callWrap.call(qword[rNativeContext + offsetof(NativeContext, luaSimd_new)]);
+
+        RegisterX64 obj = regs.takeReg(rax, kInvalidInstIdx);
+        build.vmovups(ymmword[obj + offsetof(Simd, data)], regOp(OP_B(inst)));
+        build.mov(luauRegValue(vmRegOp(OP_A(inst))), obj);
+        build.mov(luauRegTag(vmRegOp(OP_A(inst))), LUA_TSIMD);
+        regs.freeReg(obj);
+        break;
+    }
+
+    case IrCmd::ADD_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpaddd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::SUB_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpsubd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::AND_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpand(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::OR_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpor(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::XOR_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpxor(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::SHUFFLE_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+        build.vpshufd(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
+        break;
+    case IrCmd::NOT_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+
+        ScopedRegX64 ones{regs, SizeX64::ymmword};
+        build.vpcmpeqd(ones.reg, ones.reg, ones.reg);
+        build.vpxor(inst.regX64, regOp(OP_A(inst)), ones.reg);
+        break;
+    }
+    case IrCmd::SHL_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+        build.vpslld(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
+        break;
+    case IrCmd::SHR_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+        build.vpsrld(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
+        break;
+    case IrCmd::ROTL_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
+
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+
+        if (n == 0)
+        {
+            if (inst.regX64 != regOp(OP_A(inst)))
+                build.vmovups(inst.regX64, regOp(OP_A(inst)));
+        }
+        else
+        {
+            ScopedRegX64 tmp{regs, SizeX64::ymmword};
             build.vpslld(tmp.reg, regOp(OP_A(inst)), n);
             build.vpsrld(inst.regX64, regOp(OP_A(inst)), uint8_t(32 - n));
             build.vpor(inst.regX64, inst.regX64, tmp.reg);

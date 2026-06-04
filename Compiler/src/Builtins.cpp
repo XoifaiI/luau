@@ -263,6 +263,34 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_BUFFER_READSIMD;
         if (builtin.method == "writeu32x4")
             return LBF_BUFFER_WRITESIMD;
+        if (builtin.method == "readu32x8")
+            return LBF_BUFFER_READSIMD256;
+        if (builtin.method == "writeu32x8")
+            return LBF_BUFFER_WRITESIMD256;
+    }
+
+    if (builtin.object == "simd256")
+    {
+        if (builtin.method == "add")
+            return LBF_SIMD256_ADD;
+        if (builtin.method == "sub")
+            return LBF_SIMD256_SUB;
+        if (builtin.method == "band")
+            return LBF_SIMD256_BAND;
+        if (builtin.method == "bor")
+            return LBF_SIMD256_BOR;
+        if (builtin.method == "bxor")
+            return LBF_SIMD256_BXOR;
+        if (builtin.method == "bnot")
+            return LBF_SIMD256_BNOT;
+        if (builtin.method == "shl")
+            return LBF_SIMD256_SHL;
+        if (builtin.method == "shr")
+            return LBF_SIMD256_SHR;
+        if (builtin.method == "rotl")
+            return LBF_SIMD256_ROTL;
+        if (builtin.method == "shuffle")
+            return LBF_SIMD256_SHUFFLE;
     }
 
     if (builtin.object == "simd")
@@ -736,6 +764,23 @@ BuiltinInfo getBuiltinInfo(int bfid)
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_FMA:
         return {3, 1, BuiltinInfo::Flag_NoneSafe};
+
+    case LBF_BUFFER_READSIMD256:
+        return {2, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_BUFFER_WRITESIMD256:
+        return {3, 0, BuiltinInfo::Flag_NoneSafe};
+    case LBF_SIMD256_ADD:
+    case LBF_SIMD256_SUB:
+    case LBF_SIMD256_BAND:
+    case LBF_SIMD256_BOR:
+    case LBF_SIMD256_BXOR:
+    case LBF_SIMD256_SHL:
+    case LBF_SIMD256_SHR:
+    case LBF_SIMD256_ROTL:
+    case LBF_SIMD256_SHUFFLE:
+        return {2, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_SIMD256_BNOT:
+        return {1, 1, BuiltinInfo::Flag_NoneSafe};
 
     case LBF_VECTOR_MAGNITUDE:
     case LBF_VECTOR_NORMALIZE:

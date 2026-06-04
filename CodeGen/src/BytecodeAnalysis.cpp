@@ -555,6 +555,28 @@ static void applyBuiltinCall(LuauBuiltinFunction bfid, BytecodeTypes& types)
     case LBF_SIMD_SHUFFLE:
         types.result = LBC_TYPE_ANY;
         break;
+    case LBF_BUFFER_READSIMD256:
+        types.result = LBC_TYPE_ANY;
+        types.a = LBC_TYPE_BUFFER;
+        types.b = LBC_TYPE_NUMBER;
+        break;
+    case LBF_BUFFER_WRITESIMD256:
+        types.result = LBC_TYPE_NIL;
+        types.a = LBC_TYPE_BUFFER;
+        types.b = LBC_TYPE_NUMBER;
+        break;
+    case LBF_SIMD256_ADD:
+    case LBF_SIMD256_SUB:
+    case LBF_SIMD256_BAND:
+    case LBF_SIMD256_BOR:
+    case LBF_SIMD256_BXOR:
+    case LBF_SIMD256_BNOT:
+    case LBF_SIMD256_SHL:
+    case LBF_SIMD256_SHR:
+    case LBF_SIMD256_ROTL:
+    case LBF_SIMD256_SHUFFLE:
+        types.result = LBC_TYPE_ANY;
+        break;
     case LBF_TABLE_INSERT:
         types.result = LBC_TYPE_NIL;
         types.a = LBC_TYPE_TABLE;

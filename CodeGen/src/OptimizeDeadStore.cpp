@@ -145,6 +145,10 @@ struct RemoveDeadStoreState
             value = OP_B(storeInst);
             kind = IrValueKind::Simd;
             break;
+        case IrCmd::STORE_SIMD256:
+            value = OP_B(storeInst);
+            kind = IrValueKind::Simd256;
+            break;
         case IrCmd::STORE_SPLIT_TVALUE:
             value = OP_C(storeInst);
             if (value.kind == IrOpKind::Inst)
@@ -454,7 +458,8 @@ struct RemoveDeadStoreState
                         CODEGEN_ASSERT(regInfo.tagInstIdx == kInvalidInstIdx && regInfo.valueInstIdx == kInvalidInstIdx);
                         CODEGEN_ASSERT(
                             store.cmd == IrCmd::STORE_SPLIT_TVALUE || store.cmd == IrCmd::STORE_TVALUE || store.cmd == IrCmd::STORE_VECTOR ||
-                            store.cmd == IrCmd::STORE_SIMD || (store.cmd == IrCmd::STORE_TAG && function.tagOp(OP_B(store)) == LUA_TNIL)
+                            store.cmd == IrCmd::STORE_SIMD || store.cmd == IrCmd::STORE_SIMD256 ||
+                            (store.cmd == IrCmd::STORE_TAG && function.tagOp(OP_B(store)) == LUA_TNIL)
                         );
 
                         recordStore(regInfo.tvalueInstIdx);
@@ -1196,6 +1201,7 @@ static void markDeadStoresInInst(RemoveDeadStoreState& state, IrBuilder& build, 
         }
         break;
     case IrCmd::STORE_SIMD:
+    case IrCmd::STORE_SIMD256:
         // A SIMD store writes a whole TValue (boxed pointer + LUA_TSIMD tag), but on the hot path the value
         // lives as raw lane data in a register and the box is materialized lazily. While unobserved the slot
         // stays nil (a fresh local), so this is NOT treated as a collectable store: it is a removable whole

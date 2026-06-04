@@ -252,6 +252,107 @@ static int simd_fextract(lua_State* L)
     return 1;
 }
 
+// 8-wide (256-bit) interpreter implementations: the same integer lane ops over all 8 lanes. The boxed
+// value uses all 8 lanes of the shared 32-byte object. Native code keeps these in ymm registers.
+#define SIMD256_BINOP(name, expr) \
+    static int simd256_##name(lua_State* L) \
+    { \
+        const uint32_t* a = luaL_checksimd(L, 1); \
+        const uint32_t* b = luaL_checksimd(L, 2); \
+        uint32_t* r = lua_newsimd(L); \
+        for (int i = 0; i < 8; i++) \
+        { \
+            uint32_t x = a[i], y = b[i]; \
+            r[i] = (expr); \
+        } \
+        return 1; \
+    }
+
+SIMD256_BINOP(add, x + y)
+SIMD256_BINOP(sub, x - y)
+SIMD256_BINOP(band, x & y)
+SIMD256_BINOP(bor, x | y)
+SIMD256_BINOP(bxor, x ^ y)
+
+#undef SIMD256_BINOP
+
+static int simd256_bnot(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = ~a[i];
+    return 1;
+}
+
+static int simd256_shl(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    int n = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(n) < 32, 2, "shift count out of range [0, 31]");
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = a[i] << n;
+    return 1;
+}
+
+static int simd256_shr(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    int n = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(n) < 32, 2, "shift count out of range [0, 31]");
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = a[i] >> n;
+    return 1;
+}
+
+static int simd256_rotl(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    int n = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(n) < 32, 2, "rotate count out of range [0, 31]");
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = n == 0 ? a[i] : (a[i] << n) | (a[i] >> (32 - n));
+    return 1;
+}
+
+static int simd256_shuffle(lua_State* L)
+{
+    const uint32_t* a = luaL_checksimd(L, 1);
+    int control = luaL_checkinteger(L, 2);
+    luaL_argcheck(L, unsigned(control) < 256, 2, "shuffle selector out of range [0, 255]");
+
+    // vpshufd on ymm shuffles within each 128-bit lane independently using the same control byte
+    uint32_t src[8];
+    for (int i = 0; i < 8; i++)
+        src[i] = a[i];
+
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 4; i++)
+    {
+        unsigned sel = (control >> (i * 2)) & 3;
+        r[i] = src[sel];
+        r[i + 4] = src[4 + sel];
+    }
+    return 1;
+}
+
+static const luaL_Reg simd256lib[] = {
+    {"add", simd256_add},
+    {"sub", simd256_sub},
+    {"band", simd256_band},
+    {"bor", simd256_bor},
+    {"bxor", simd256_bxor},
+    {"bnot", simd256_bnot},
+    {"shl", simd256_shl},
+    {"shr", simd256_shr},
+    {"rotl", simd256_rotl},
+    {"shuffle", simd256_shuffle},
+    {NULL, NULL},
+};
+
 static const luaL_Reg simdlib[] = {
     {"create", simd_create},
     {"splat", simd_splat},
@@ -285,6 +386,9 @@ static const luaL_Reg simdlib[] = {
 int luaopen_simd(lua_State* L)
 {
     luaL_register(L, LUA_SIMDLIBNAME, simdlib);
+
+    luaL_register(L, "simd256", simd256lib);
+    lua_pop(L, 1); // leave only the simd table as the result; simd256 stays registered as a global
 
     return 1;
 }

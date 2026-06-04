@@ -1056,6 +1056,34 @@ static int buffer_writeu32x4(lua_State* L)
     return 0;
 }
 
+static int buffer_readu32x8(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+
+    if (isoutofbounds(offset, len, 32))
+        luaL_error(L, "buffer access out of bounds");
+
+    uint32_t* r = lua_newsimd(L);
+    memcpy(r, (char*)buf + unsigned(offset), 32);
+    return 1;
+}
+
+static int buffer_writeu32x8(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+    const uint32_t* v = luaL_checksimd(L, 3);
+
+    if (isoutofbounds(offset, len, 32))
+        luaL_error(L, "buffer access out of bounds");
+
+    memcpy((char*)buf + unsigned(offset), v, 32);
+    return 0;
+}
+
 // Bridge the vector type to buffer storage (vertex/particle data is buffer-backed): read/write LUA_VECTOR_SIZE
 // consecutive f32 lanes as a single vector value, no per-component readf32/writef32 juggling.
 static int buffer_readvector(lua_State* L)
@@ -1218,6 +1246,8 @@ static const luaL_Reg bufferlib[] = {
     {"writevector", buffer_writevector},
     {"readu32x4", buffer_readu32x4},
     {"writeu32x4", buffer_writeu32x4},
+    {"readu32x8", buffer_readu32x8},
+    {"writeu32x8", buffer_writeu32x8},
     {"readbits", buffer_readbits},
     {"writebits", buffer_writebits},
     {"readinteger", buffer_readlong},
@@ -1271,6 +1301,8 @@ static const luaL_Reg bufferlib_NOINTEGER[] = {
     {"writevector", buffer_writevector},
     {"readu32x4", buffer_readu32x4},
     {"writeu32x4", buffer_writeu32x4},
+    {"readu32x8", buffer_readu32x8},
+    {"writeu32x8", buffer_writeu32x8},
     {"readbits", buffer_readbits},
     {"writebits", buffer_writebits},
     {NULL, NULL},

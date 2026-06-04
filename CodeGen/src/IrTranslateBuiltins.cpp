@@ -1826,6 +1826,104 @@ static BuiltinImplResult translateBuiltinSimdShuffle(IrBuilder& build, int npara
     return {BuiltinImplType::Full, 1};
 }
 
+// 256-bit (8-wide) counterparts: same shapes as the 128-bit helpers, but 32-byte buffer access and the
+// LOAD/STORE/op SIMD256 commands. The boxed value still carries the LUA_TSIMD tag (one shared box type).
+static BuiltinImplResult translateBuiltinBufferReadSimd256(IrBuilder& build, int nparams, int ra, int arg, IrOp args, IrOp arg3, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    IrOp buf, intIndex;
+    translateBufferArgsAndCheckBounds(build, nparams, arg, args, arg3, 32, pcpos, buf, intIndex, false);
+
+    IrOp result = build.inst(IrCmd::BUFFER_READSIMD256, buf, intIndex, build.constTag(LUA_TBUFFER));
+    build.inst(IrCmd::STORE_SIMD256, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinBufferWriteSimd256(IrBuilder& build, int nparams, int ra, int arg, IrOp args, IrOp arg3, int nresults, int pcpos)
+{
+    if (nparams < 3 || nresults > 0 || arg3.kind != IrOpKind::VmReg)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(arg3, LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp buf, intIndex;
+    translateBufferArgsAndCheckBounds(build, 2, arg, args, arg3, 32, pcpos, buf, intIndex, false);
+
+    IrOp value = build.inst(IrCmd::LOAD_SIMD256, arg3);
+    build.inst(IrCmd::BUFFER_WRITESIMD256, buf, intIndex, value, build.constTag(LUA_TBUFFER));
+
+    return {BuiltinImplType::Full, 0};
+}
+
+static BuiltinImplResult translateBuiltinSimd256Binary(IrBuilder& build, IrCmd cmd, int nparams, int ra, int arg, IrOp args, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1 || args.kind != IrOpKind::VmReg)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+    build.loadAndCheckTag(args, LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD256, build.vmReg(arg));
+    IrOp b = build.inst(IrCmd::LOAD_SIMD256, args);
+    IrOp result = build.inst(cmd, a, b);
+    build.inst(IrCmd::STORE_SIMD256, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinSimd256Unary(IrBuilder& build, IrCmd cmd, int nparams, int ra, int arg, int nresults, int pcpos)
+{
+    if (nparams < 1 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD256, build.vmReg(arg));
+    IrOp result = build.inst(cmd, a);
+    build.inst(IrCmd::STORE_SIMD256, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinSimd256Shift(IrBuilder& build, IrCmd cmd, int nparams, int ra, int arg, IrOp args, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    std::optional<double> count = build.function.asDoubleOp(args);
+    if (!count || *count < 0.0 || *count >= 32.0 || double(int(*count)) != *count)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD256, build.vmReg(arg));
+    IrOp result = build.inst(cmd, a, build.constInt(int(*count)));
+    build.inst(IrCmd::STORE_SIMD256, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinSimd256Shuffle(IrBuilder& build, int nparams, int ra, int arg, IrOp args, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    std::optional<double> control = build.function.asDoubleOp(args);
+    if (!control || *control < 0.0 || *control >= 256.0 || double(int(*control)) != *control)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD256, build.vmReg(arg));
+    IrOp result = build.inst(IrCmd::SHUFFLE_SIMD256, a, build.constInt(int(*control)));
+    build.inst(IrCmd::STORE_SIMD256, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
 BuiltinImplResult translateBuiltin(
     IrBuilder& build,
     int bfid,
@@ -2113,6 +2211,30 @@ BuiltinImplResult translateBuiltin(
         return translateBuiltinSimdFma(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_SIMD_SHUFFLE:
         return translateBuiltinSimdShuffle(build, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_BUFFER_READSIMD256:
+        return translateBuiltinBufferReadSimd256(build, nparams, ra, arg, args, arg3, nresults, pcpos);
+    case LBF_BUFFER_WRITESIMD256:
+        return translateBuiltinBufferWriteSimd256(build, nparams, ra, arg, args, arg3, nresults, pcpos);
+    case LBF_SIMD256_ADD:
+        return translateBuiltinSimd256Binary(build, IrCmd::ADD_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_SUB:
+        return translateBuiltinSimd256Binary(build, IrCmd::SUB_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_BAND:
+        return translateBuiltinSimd256Binary(build, IrCmd::AND_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_BOR:
+        return translateBuiltinSimd256Binary(build, IrCmd::OR_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_BXOR:
+        return translateBuiltinSimd256Binary(build, IrCmd::XOR_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_BNOT:
+        return translateBuiltinSimd256Unary(build, IrCmd::NOT_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_SHL:
+        return translateBuiltinSimd256Shift(build, IrCmd::SHL_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_SHR:
+        return translateBuiltinSimd256Shift(build, IrCmd::SHR_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_ROTL:
+        return translateBuiltinSimd256Shift(build, IrCmd::ROTL_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_SHUFFLE:
+        return translateBuiltinSimd256Shuffle(build, nparams, ra, arg, args, nresults, pcpos);
     case LBF_VECTOR_MAGNITUDE:
         return translateBuiltinVectorMagnitude(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_VECTOR_NORMALIZE:

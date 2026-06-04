@@ -269,6 +269,8 @@ declare buffer: {
     writevector: @checked (b: buffer, offset: number, v: vector) -> (),
     readu32x4: @checked (b: buffer, offset: number) -> any,
     writeu32x4: @checked (b: buffer, offset: number, value: any) -> (),
+    readu32x8: @checked (b: buffer, offset: number) -> any,
+    writeu32x8: @checked (b: buffer, offset: number, value: any) -> (),
     readi8: @checked (b: buffer, offset: number) -> number,
     readu8: @checked (b: buffer, offset: number) -> number,
     readi16: @checked (b: buffer, offset: number) -> number,
@@ -325,6 +327,8 @@ declare buffer: {
     writevector: @checked (b: buffer, offset: number, v: vector) -> (),
     readu32x4: @checked (b: buffer, offset: number) -> any,
     writeu32x4: @checked (b: buffer, offset: number, value: any) -> (),
+    readu32x8: @checked (b: buffer, offset: number) -> any,
+    writeu32x8: @checked (b: buffer, offset: number, value: any) -> (),
     readi8: @checked (b: buffer, offset: number) -> number,
     readu8: @checked (b: buffer, offset: number) -> number,
     readi16: @checked (b: buffer, offset: number) -> number,
@@ -382,6 +386,20 @@ declare simd: {
     shuffle: @checked (v: simd, control: number) -> simd,
     fcreate: @checked (a: number, b: number, c: number, d: number) -> simd,
     fextract: @checked (v: simd, index: number) -> number,
+}
+
+-- 8-wide (256-bit) integer lane ops; values reuse the opaque simd type (same boxed object, all 8 lanes)
+declare simd256: {
+    add: @checked (a: simd, b: simd) -> simd,
+    sub: @checked (a: simd, b: simd) -> simd,
+    band: @checked (a: simd, b: simd) -> simd,
+    bor: @checked (a: simd, b: simd) -> simd,
+    bxor: @checked (a: simd, b: simd) -> simd,
+    bnot: @checked (a: simd) -> simd,
+    shl: @checked (a: simd, count: number) -> simd,
+    shr: @checked (a: simd, count: number) -> simd,
+    rotl: @checked (a: simd, count: number) -> simd,
+    shuffle: @checked (v: simd, control: number) -> simd,
 }
 
 )BUILTIN_SRC";

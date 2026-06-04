@@ -1054,6 +1054,10 @@ enum class IrCmd : uint8_t
     // D: tag of the buffer
     BUFFER_WRITESIMD,
 
+    // 256-bit (8-wide u32, AVX2 ymm) buffer load/store; same operand shapes as the 128-bit forms above.
+    BUFFER_READSIMD256,
+    BUFFER_WRITESIMD256,
+
     // Load the lane data of a boxed SIMD value referenced by a VM register (unbox)
     // A: source register
     LOAD_SIMD,
@@ -1108,6 +1112,22 @@ enum class IrCmd : uint8_t
     // Lane shuffle of a SIMD value by an immediate selector (vpshufd control byte)
     // A: TValue (simd lane data), B: int (selector 0-255)
     SHUFFLE_SIMD,
+
+    // 256-bit (8-wide u32, AVX2 ymm) counterparts of the integer SIMD value ops. Same operand shapes as the
+    // 128-bit forms; they produce/consume IrValueKind::Simd256 and lower to VEX.256 instructions.
+    // SHUFFLE_SIMD256 applies the vpshufd selector within each 128-bit lane (per-block for a 2-block layout).
+    LOAD_SIMD256,
+    STORE_SIMD256,
+    ADD_SIMD256,
+    SUB_SIMD256,
+    AND_SIMD256,
+    OR_SIMD256,
+    XOR_SIMD256,
+    NOT_SIMD256,
+    SHL_SIMD256,
+    SHR_SIMD256,
+    ROTL_SIMD256,
+    SHUFFLE_SIMD256,
 
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer
@@ -1239,6 +1259,7 @@ enum class IrValueKind : uint8_t
     Double,
     Tvalue,
     Simd, // 4-wide u32 lane data, register-resident like Tvalue but boxed into a LUA_TSIMD object when stored to a VM register
+    Simd256, // 8-wide u32 lane data (ymm), boxed into the same 32-byte LUA_TSIMD object using all 8 lanes
 
     Count
 };

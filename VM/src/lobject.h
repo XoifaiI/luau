@@ -322,13 +322,14 @@ typedef struct LuauBuffer
     alignas(8) char data[1];
 } Buffer;
 
-// Boxed representation of a SIMD value: a fixed 128-bit payload (4 x uint32 lanes) with no GC children.
+// Boxed representation of a SIMD value: a fixed 256-bit payload (8 x uint32 lanes) with no GC children.
+// 4-wide values use the low 4 lanes; 8-wide (AVX2) values use all 8. One box size keeps the GC uniform.
 // This is the heap form used by the interpreter and produced when a register-resident SIMD value escapes.
 typedef struct LuauSimd
 {
     CommonHeader;
 
-    alignas(8) uint32_t data[4];
+    alignas(8) uint32_t data[8];
 } Simd;
 
 enum FeedbackVectorSlotKind

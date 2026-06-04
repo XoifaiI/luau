@@ -41,6 +41,9 @@ constexpr uint8_t kUpvalueEmptyKey = 0xff;
 struct RegisterInfo
 {
     uint8_t tag = 0xff;
+    // When tag == LUA_TSIMD, distinguishes an 8-wide (Simd256) value from a 4-wide one. 4-wide and 8-wide
+    // share the LUA_TSIMD tag, so width must be tracked separately to rewrite SIMD local moves at the right size.
+    bool simd256 = false;
     IrOp value;
 
     // Used to quickly invalidate links between SSA values and register memory
@@ -189,6 +192,21 @@ struct ConstPropState
         }
     }
 
+    // Record the SIMD width for a register whose tag is LUA_TSIMD. Must be called right after saveTag.
+    void saveSimdWidth(IrOp op, bool is256)
+    {
+        if (RegisterInfo* info = tryGetRegisterInfo(op))
+            info->simd256 = is256;
+    }
+
+    bool isSimd256(IrOp op)
+    {
+        if (RegisterInfo* info = tryGetRegisterInfo(op))
+            return info->tag == LUA_TSIMD && info->simd256;
+
+        return false;
+    }
+
     IrOp tryGetValue(IrOp op)
     {
         if (RegisterInfo* info = tryGetRegisterInfo(op))
@@ -224,6 +242,7 @@ struct ConstPropState
         if (invalidateTag)
         {
             reg.tag = 0xff;
+            reg.simd256 = false;
         }
 
         if (invalidateValue)
@@ -1753,6 +1772,7 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
         }
         break;
     case IrCmd::LOAD_SIMD:
+    case IrCmd::LOAD_SIMD256:
         if (OP_A(inst).kind == IrOpKind::VmReg)
             state.substituteOrRecordVmRegLoad(inst);
         break;
@@ -2042,9 +2062,35 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             // CHECK_TAG guards emitted by following simd.* builtins (whose inputs are provably simd)
             // be elided, which in turn lets dead boxing stores be removed.
             state.saveTag(OP_A(inst), LUA_TSIMD);
+            state.saveSimdWidth(OP_A(inst), /* is256 */ false);
 
             // Future loads of this register can reuse the lane data directly, eliding box and unbox
             state.forwardVmRegStoreToLoad(inst, IrCmd::LOAD_SIMD);
+        }
+        break;
+    case IrCmd::STORE_SIMD256:
+        if (OP_A(inst).kind == IrOpKind::VmReg)
+        {
+            if (OP_B(inst).kind == IrOpKind::Inst)
+            {
+                if (uint32_t* prevIdx = state.getPreviousVersionedLoadIndex(IrCmd::LOAD_SIMD256, OP_A(inst)))
+                {
+                    if (*prevIdx == OP_B(inst).index)
+                    {
+                        kill(function, inst);
+                        break;
+                    }
+                }
+            }
+
+            state.invalidate(OP_A(inst));
+
+            // The boxed 8-wide value carries the same LUA_TSIMD tag; recording it (plus the 256 width) elides
+            // following CHECK_TAGs and lets the STORE_TVALUE SIMD-move rewrite copy it at the correct width.
+            state.saveTag(OP_A(inst), LUA_TSIMD);
+            state.saveSimdWidth(OP_A(inst), /* is256 */ true);
+
+            state.forwardVmRegStoreToLoad(inst, IrCmd::LOAD_SIMD256);
         }
         break;
     case IrCmd::STORE_TVALUE:
@@ -2061,8 +2107,14 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             {
                 IrOp dstReg = OP_A(inst);
 
-                // Convert the load into LOAD_SIMD and forward it to the producing STORE_SIMD's lane data
-                replace(function, block, srcIdx, IrInst{IrCmd::LOAD_SIMD, {OP_A(src)}});
+                // 4-wide and 8-wide share the LUA_TSIMD tag, so copy at the source register's tracked width:
+                // an 8-wide value must use LOAD/STORE_SIMD256 or the move would read only the low 128 bits.
+                bool is256 = state.isSimd256(OP_A(src));
+                IrCmd loadCmd = is256 ? IrCmd::LOAD_SIMD256 : IrCmd::LOAD_SIMD;
+                IrCmd storeCmd = is256 ? IrCmd::STORE_SIMD256 : IrCmd::STORE_SIMD;
+
+                // Convert the load into LOAD_SIMD[256] and forward it to the producing store's lane data
+                replace(function, block, srcIdx, IrInst{loadCmd, {OP_A(src)}});
                 state.substituteOrRecordVmRegLoad(function.instructions[srcIdx]);
 
                 // Resolve through any substitution so we never store a chained SUBSTITUTE operand
@@ -2070,11 +2122,12 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
                     ? OP_A(function.instructions[srcIdx])
                     : IrOp{IrOpKind::Inst, srcIdx};
 
-                replace(function, block, index, IrInst{IrCmd::STORE_SIMD, {dstReg, srcOp}});
+                replace(function, block, index, IrInst{storeCmd, {dstReg, srcOp}});
 
                 state.invalidate(dstReg);
                 state.saveTag(dstReg, LUA_TSIMD);
-                state.forwardVmRegStoreToLoad(function.instructions[index], IrCmd::LOAD_SIMD);
+                state.saveSimdWidth(dstReg, is256);
+                state.forwardVmRegStoreToLoad(function.instructions[index], loadCmd);
                 break;
             }
         }
