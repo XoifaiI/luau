@@ -259,6 +259,34 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_BUFFER_READINTEGER;
         if (FFlag::LuauIntegerFastcalls && FFlag::LuauIntegerBufferFastcalls && builtin.method == "writeinteger")
             return LBF_BUFFER_WRITEINTEGER;
+        if (builtin.method == "readu32x4")
+            return LBF_BUFFER_READSIMD;
+        if (builtin.method == "writeu32x4")
+            return LBF_BUFFER_WRITESIMD;
+    }
+
+    if (builtin.object == "simd")
+    {
+        if (builtin.method == "add")
+            return LBF_SIMD_ADD;
+        if (builtin.method == "sub")
+            return LBF_SIMD_SUB;
+        if (builtin.method == "mul")
+            return LBF_SIMD_MUL;
+        if (builtin.method == "band")
+            return LBF_SIMD_BAND;
+        if (builtin.method == "bor")
+            return LBF_SIMD_BOR;
+        if (builtin.method == "bxor")
+            return LBF_SIMD_BXOR;
+        if (builtin.method == "bnot")
+            return LBF_SIMD_BNOT;
+        if (builtin.method == "shl")
+            return LBF_SIMD_SHL;
+        if (builtin.method == "shr")
+            return LBF_SIMD_SHR;
+        if (builtin.method == "rotl")
+            return LBF_SIMD_ROTL;
     }
 
     if (builtin.object == "vector")
@@ -655,6 +683,24 @@ BuiltinInfo getBuiltinInfo(int bfid)
 
     case LBF_BUFFER_READINTEGER:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
+
+    case LBF_BUFFER_READSIMD:
+        return {2, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_BUFFER_WRITESIMD:
+        return {3, 0, BuiltinInfo::Flag_NoneSafe};
+
+    case LBF_SIMD_ADD:
+    case LBF_SIMD_SUB:
+    case LBF_SIMD_MUL:
+    case LBF_SIMD_BAND:
+    case LBF_SIMD_BOR:
+    case LBF_SIMD_BXOR:
+    case LBF_SIMD_SHL:
+    case LBF_SIMD_SHR:
+    case LBF_SIMD_ROTL:
+        return {2, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_SIMD_BNOT:
+        return {1, 1, BuiltinInfo::Flag_NoneSafe};
 
     case LBF_VECTOR_MAGNITUDE:
     case LBF_VECTOR_NORMALIZE:

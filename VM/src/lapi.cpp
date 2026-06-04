@@ -14,6 +14,7 @@
 #include "lvm.h"
 #include "lnumutils.h"
 #include "lbuffer.h"
+#include "lsimd.h"
 
 #include <string.h>
 
@@ -639,6 +640,16 @@ void* lua_tobuffer(lua_State* L, int idx, size_t* len)
         *len = b->len;
 
     return b->data;
+}
+
+uint32_t* lua_tosimd(lua_State* L, int idx)
+{
+    StkId o = index2addr(L, idx);
+
+    if (!ttissimd(o))
+        return NULL;
+
+    return simdvalue(o)->data;
 }
 
 const void* lua_topointer(lua_State* L, int idx)
@@ -1482,6 +1493,16 @@ void* lua_newbuffer(lua_State* L, size_t sz)
     setbufvalue(L, L->top, b);
     api_incr_top(L);
     return b->data;
+}
+
+uint32_t* lua_newsimd(lua_State* L)
+{
+    luaC_checkGC(L);
+    luaC_threadbarrier(L);
+    Simd* s = luaSimd_new(L);
+    setsimdvalue(L, L->top, s);
+    api_incr_top(L);
+    return s->data;
 }
 
 static const char* aux_upvalue(StkId fi, int n, TValue** val)

@@ -193,6 +193,24 @@ public:
     void vpinsrd(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, uint8_t offset);
     void vpextrd(RegisterX64 dst, RegisterX64 src, uint8_t offset);
 
+    // Packed 32-bit integer arithmetic and logic (lanewise over the 4 dwords of an xmm)
+    void vpaddd(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpsubd(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpmulld(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpand(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpandn(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpor(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpxor(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpcmpeqd(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+
+    // Packed 32-bit shifts by an immediate count (encoded with a /digit opcode extension)
+    void vpslld(RegisterX64 dst, RegisterX64 src, uint8_t shift);
+    void vpsrld(RegisterX64 dst, RegisterX64 src, uint8_t shift);
+    void vpsrad(RegisterX64 dst, RegisterX64 src, uint8_t shift);
+
+    // Packed 32-bit lane shuffle by an immediate selector
+    void vpshufd(RegisterX64 dst, OperandX64 src, uint8_t shuffle);
+
     void vdpps(OperandX64 dst, OperandX64 src1, OperandX64 src2, uint8_t mask);
     void vfmadd213ps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vfmadd213pd(OperandX64 dst, OperandX64 src1, OperandX64 src2);

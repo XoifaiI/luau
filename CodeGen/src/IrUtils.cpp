@@ -415,6 +415,22 @@ IrValueKind getCmdValueKind(IrCmd cmd)
         return IrValueKind::Double;
     case IrCmd::JUMP_CMP_PROTOID:
         return IrValueKind::None;
+    case IrCmd::BUFFER_READSIMD:
+    case IrCmd::LOAD_SIMD:
+    case IrCmd::ADD_SIMD:
+    case IrCmd::SUB_SIMD:
+    case IrCmd::MUL_SIMD:
+    case IrCmd::AND_SIMD:
+    case IrCmd::OR_SIMD:
+    case IrCmd::XOR_SIMD:
+    case IrCmd::NOT_SIMD:
+    case IrCmd::SHL_SIMD:
+    case IrCmd::SHR_SIMD:
+    case IrCmd::ROTL_SIMD:
+        return IrValueKind::Simd;
+    case IrCmd::BUFFER_WRITESIMD:
+    case IrCmd::STORE_SIMD:
+        return IrValueKind::None;
     }
 
     LUAU_UNREACHABLE();

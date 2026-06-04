@@ -783,6 +783,18 @@ struct TypeMapVisitor : AstVisitor
             case LBF_BUFFER_WRITEF32:
             case LBF_BUFFER_WRITEF64:
             case LBF_BUFFER_WRITEINTEGER:
+            case LBF_BUFFER_READSIMD:
+            case LBF_BUFFER_WRITESIMD:
+            case LBF_SIMD_ADD:
+            case LBF_SIMD_SUB:
+            case LBF_SIMD_MUL:
+            case LBF_SIMD_BAND:
+            case LBF_SIMD_BOR:
+            case LBF_SIMD_BXOR:
+            case LBF_SIMD_BNOT:
+            case LBF_SIMD_SHL:
+            case LBF_SIMD_SHR:
+            case LBF_SIMD_ROTL:
                 break;
             case LBF_MATH_ABS:
             case LBF_MATH_ACOS:

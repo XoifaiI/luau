@@ -1073,6 +1073,94 @@ void AssemblyBuilderX64::vpextrd(RegisterX64 dst, RegisterX64 src, uint8_t offse
     commit();
 }
 
+void AssemblyBuilderX64::vpaddd(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpaddd", dst, src1, src2, 0xfe, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpsubd(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpsubd", dst, src1, src2, 0xfa, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpmulld(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpmulld", dst, src1, src2, 0x40, false, AVX_0F38, AVX_66);
+}
+
+void AssemblyBuilderX64::vpand(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpand", dst, src1, src2, 0xdb, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpandn(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpandn", dst, src1, src2, 0xdf, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpor(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpor", dst, src1, src2, 0xeb, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpxor(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpxor", dst, src1, src2, 0xef, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpcmpeqd(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpcmpeqd", dst, src1, src2, 0x76, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpslld(RegisterX64 dst, RegisterX64 src, uint8_t shift)
+{
+    // VEX.NDD.128.66.0F.WIG 72 /6 ib: the /6 digit goes in ModRM.reg, src in r/m, dst in VEX.vvvv.
+    // 'placeAvx' wrappers put the destination in ModRM.reg, so this archetype is encoded by hand.
+    if (logText)
+        log("vpslld", dst, src, shift);
+
+    placeVex(xmm0, dst, src, false, AVX_0F, AVX_66);
+    place(0x72);
+    placeModRegMem(src, 6, /*extraCodeBytes=*/1);
+    placeImm8(shift);
+
+    commit();
+}
+
+void AssemblyBuilderX64::vpsrld(RegisterX64 dst, RegisterX64 src, uint8_t shift)
+{
+    // VEX.NDD.128.66.0F.WIG 72 /2 ib
+    if (logText)
+        log("vpsrld", dst, src, shift);
+
+    placeVex(xmm0, dst, src, false, AVX_0F, AVX_66);
+    place(0x72);
+    placeModRegMem(src, 2, /*extraCodeBytes=*/1);
+    placeImm8(shift);
+
+    commit();
+}
+
+void AssemblyBuilderX64::vpsrad(RegisterX64 dst, RegisterX64 src, uint8_t shift)
+{
+    // VEX.NDD.128.66.0F.WIG 72 /4 ib
+    if (logText)
+        log("vpsrad", dst, src, shift);
+
+    placeVex(xmm0, dst, src, false, AVX_0F, AVX_66);
+    place(0x72);
+    placeModRegMem(src, 4, /*extraCodeBytes=*/1);
+    placeImm8(shift);
+
+    commit();
+}
+
+void AssemblyBuilderX64::vpshufd(RegisterX64 dst, OperandX64 src, uint8_t shuffle)
+{
+    placeAvx("vpshufd", dst, noreg, src, shuffle, 0x70, false, AVX_0F, AVX_66);
+}
+
 void AssemblyBuilderX64::vdpps(OperandX64 dst, OperandX64 src1, OperandX64 src2, uint8_t mask)
 {
     placeAvx("vdpps", dst, src1, src2, mask, 0x40, false, AVX_0F3A, AVX_66);

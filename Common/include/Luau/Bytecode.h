@@ -733,6 +733,22 @@ enum LuauBuiltinFunction
     // buffer.readinteger / buffer.writeinteger (int64_t)
     LBF_BUFFER_READINTEGER,
     LBF_BUFFER_WRITEINTEGER,
+
+    // buffer.readu32x4 / buffer.writeu32x4 (128-bit simd load/store)
+    LBF_BUFFER_READSIMD,
+    LBF_BUFFER_WRITESIMD,
+
+    // simd. lanewise operations on four u32 lanes
+    LBF_SIMD_ADD,
+    LBF_SIMD_SUB,
+    LBF_SIMD_MUL,
+    LBF_SIMD_BAND,
+    LBF_SIMD_BOR,
+    LBF_SIMD_BXOR,
+    LBF_SIMD_BNOT,
+    LBF_SIMD_SHL,
+    LBF_SIMD_SHR,
+    LBF_SIMD_ROTL,
 };
 
 // Capture type, used in LOP_CAPTURE

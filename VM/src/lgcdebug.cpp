@@ -10,6 +10,7 @@
 #include "ltable.h"
 #include "ludata.h"
 #include "lbuffer.h"
+#include "lsimd.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -192,6 +193,9 @@ static void validateobj(global_State* g, GCObject* o)
         break;
 
     case LUA_TBUFFER:
+        break;
+
+    case LUA_TSIMD:
         break;
 
     case LUA_TPROTO:
@@ -521,6 +525,11 @@ static void dumpbuffer(FILE* f, Buffer* b)
     fprintf(f, "{\"type\":\"buffer\",\"cat\":%d,\"size\":%d}", b->memcat, int(sizebuffer(b->len)));
 }
 
+static void dumpsimd(FILE* f, Simd* s)
+{
+    fprintf(f, "{\"type\":\"simd\",\"cat\":%d,\"size\":%d}", s->memcat, int(sizesimd()));
+}
+
 static void dumpproto(FILE* f, Proto* p)
 {
     size_t size = sizeof(Proto) + sizeof(Instruction) * p->sizecode + sizeof(Proto*) * p->sizep + sizeof(TValue) * p->sizek + p->sizelineinfo +
@@ -627,6 +636,9 @@ static void dumpobj(FILE* f, GCObject* o)
 
     case LUA_TBUFFER:
         return dumpbuffer(f, gco2buf(o));
+
+    case LUA_TSIMD:
+        return dumpsimd(f, gco2simd(o));
 
     case LUA_TCLASS:
         return dumpclass(f, gco2class(o));
@@ -900,6 +912,11 @@ static void enumbuffer(EnumContext* ctx, Buffer* b)
     enumnode(ctx, obj2gco(b), sizebuffer(b->len), NULL);
 }
 
+static void enumsimd(EnumContext* ctx, Simd* s)
+{
+    enumnode(ctx, obj2gco(s), sizesimd(), NULL);
+}
+
 static void enumproto(EnumContext* ctx, Proto* p)
 {
     size_t size = sizeof(Proto) + sizeof(Instruction) * p->sizecode + sizeof(Proto*) * p->sizep + sizeof(TValue) * p->sizek + p->sizelineinfo +
@@ -1002,6 +1019,9 @@ static void enumobj(EnumContext* ctx, GCObject* o)
 
     case LUA_TBUFFER:
         return enumbuffer(ctx, gco2buf(o));
+
+    case LUA_TSIMD:
+        return enumsimd(ctx, gco2simd(o));
 
     case LUA_TCLASS:
         return enumclass(ctx, gco2class(o));

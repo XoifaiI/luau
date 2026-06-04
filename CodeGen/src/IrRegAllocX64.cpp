@@ -17,7 +17,7 @@ namespace CodeGen
 namespace X64
 {
 
-static constexpr unsigned kValueDwordSize[] = {0, 0, 1, 1, 2, 2, 1, 2, 4};
+static constexpr unsigned kValueDwordSize[] = {0, 0, 1, 1, 2, 2, 1, 2, 4, 4};
 static_assert(sizeof(kValueDwordSize) / sizeof(kValueDwordSize[0]) == size_t(IrValueKind::Count), "all kinds have to be covered");
 
 static const RegisterX64 kGprAllocOrder[] = {rax, rdx, rcx, rbx, rsi, rdi, r8, r9, r10, r11};
@@ -328,8 +328,10 @@ void IrRegAllocX64::preserve(IrInst& inst)
     spill.originalLoc = inst.regX64;
 
     // Loads from VmReg/VmConst don't have to be spilled, they can be restored from a register later
-    // When checking if value has a restore operation to spill it, we only allow it in the same block
-    if (!function.hasRestoreLocation(inst, /*limitToCurrentBlock*/ true))
+    // When checking if value has a restore operation to spill it, we only allow it in the same block.
+    // A SIMD value's restore location is its slot, but on the hot path that slot is unboxed (nil): its lane
+    // data only exists in a register, so it must be spilled to raw scratch and never restored from the slot.
+    if (!function.hasRestoreLocation(inst, /*limitToCurrentBlock*/ true) || spill.valueKind == IrValueKind::Simd)
     {
         unsigned i = findSpillStackSlot(spill.valueKind);
 
@@ -346,7 +348,7 @@ void IrRegAllocX64::preserve(IrInst& inst)
             build.mov(emergencyTemp, qword[rState + offsetof(lua_State, global)]);
             build.lea(emergencyTemp, addr[emergencyTemp + offsetof(global_State, ecbdata) + extraOffset]);
 
-            if (spill.valueKind == IrValueKind::Tvalue)
+            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
                 build.vmovups(xmmword[emergencyTemp], inst.regX64);
             else if (spill.valueKind == IrValueKind::Double)
                 build.vmovsd(qword[emergencyTemp], inst.regX64);
@@ -363,7 +365,7 @@ void IrRegAllocX64::preserve(IrInst& inst)
         }
         else
         {
-            if (spill.valueKind == IrValueKind::Tvalue)
+            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
                 build.vmovups(xmmword[sSpillArea + i * 4], inst.regX64);
             else if (spill.valueKind == IrValueKind::Double)
                 build.vmovsd(qword[sSpillArea + i * 4], inst.regX64);
@@ -490,7 +492,7 @@ void IrRegAllocX64::restore(IrInst& inst, bool intoOriginalLocation)
                 restoreAddr = getRestoreAddress(inst, restoreLocation);
             }
 
-            if (spill.valueKind == IrValueKind::Tvalue)
+            if (spill.valueKind == IrValueKind::Tvalue || spill.valueKind == IrValueKind::Simd)
             {
                 build.vmovups(reg, restoreAddr);
             }
@@ -601,7 +603,7 @@ unsigned IrRegAllocX64::findSpillStackSlot(IrValueKind valueKind)
             if (usedSpillSlotHalfs.test(i) || usedSpillSlotHalfs.test(i + 1))
                 continue;
 
-            if (valueKind == IrValueKind::Tvalue)
+            if (valueKind == IrValueKind::Tvalue || valueKind == IrValueKind::Simd)
             {
                 if (usedSpillSlotHalfs.test(i + 2) || usedSpillSlotHalfs.test(i + 3))
                 {

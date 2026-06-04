@@ -22,6 +22,7 @@ static void visitVmRegDefsUses(T& visitor, IrFunction& function, IrInst& inst)
     case IrCmd::LOAD_INT64:
     case IrCmd::LOAD_FLOAT:
     case IrCmd::LOAD_TVALUE:
+    case IrCmd::LOAD_SIMD:
         visitor.maybeUse(OP_A(inst)); // Argument can also be a VmConst
         break;
     case IrCmd::STORE_TAG:
@@ -33,6 +34,7 @@ static void visitVmRegDefsUses(T& visitor, IrFunction& function, IrInst& inst)
     case IrCmd::STORE_VECTOR:
     case IrCmd::STORE_TVALUE:
     case IrCmd::STORE_SPLIT_TVALUE:
+    case IrCmd::STORE_SIMD:
         visitor.maybeDef(OP_A(inst)); // Argument can also be a pointer value
         break;
     case IrCmd::CMP_ANY:

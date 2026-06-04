@@ -28,6 +28,8 @@ endif()
 
 project(Luau LANGUAGES CXX C)
 
+add_compile_definitions(LUAU_ENABLE_ASSERT)
+
 if (LUAU_BUILD_SHARED)
     add_library(Luau.Common SHARED)
     add_library(Luau.CLI.lib SHARED)

@@ -86,6 +86,7 @@ enum lua_Type
     LUA_TBUFFER,
     LUA_TCLASS,
     LUA_TOBJECT,
+    LUA_TSIMD,
 
     // values below this line are used in GCObject tags but may never show up in TValue type tags
 
@@ -174,6 +175,7 @@ LUA_API int lua_userdatatag(lua_State* L, int idx);
 LUA_API int lua_lightuserdatatag(lua_State* L, int idx);
 LUA_API lua_State* lua_tothread(lua_State* L, int idx);
 LUA_API void* lua_tobuffer(lua_State* L, int idx, size_t* len);
+LUA_API uint32_t* lua_tosimd(lua_State* L, int idx);
 LUA_API const void* lua_topointer(lua_State* L, int idx);
 
 /*
@@ -203,6 +205,7 @@ LUA_API void* lua_newuserdatataggedwithmetatable(lua_State* L, size_t sz, int ta
 LUA_API void* lua_newuserdatadtor(lua_State* L, size_t sz, void (*dtor)(void*));
 
 LUA_API void* lua_newbuffer(lua_State* L, size_t sz);
+LUA_API uint32_t* lua_newsimd(lua_State* L);
 
 /*
 ** get functions (Lua -> stack)

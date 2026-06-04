@@ -1040,6 +1040,49 @@ enum class IrCmd : uint8_t
     // C: int64 (value)
     BUFFER_WRITEI64,
 
+    // Read a 128-bit SIMD value (four u32 lanes) from buffer storage at specified offset
+    // A: pointer (buffer)
+    // B: int (offset)
+    // C: tag of the buffer for bounds metadata
+    // Result is the lane data held in an xmm register (IrValueKind::Tvalue)
+    BUFFER_READSIMD,
+
+    // Write a 128-bit SIMD value to buffer storage at specified offset
+    // A: pointer (buffer)
+    // B: int (offset)
+    // C: TValue (simd lane data)
+    // D: tag of the buffer
+    BUFFER_WRITESIMD,
+
+    // Load the lane data of a boxed SIMD value referenced by a VM register (unbox)
+    // A: source register
+    LOAD_SIMD,
+
+    // Box SIMD lane data into a fresh heap object and store it into a VM register
+    // A: target register
+    // B: TValue (simd lane data)
+    STORE_SIMD,
+
+    // Lanewise operations on two SIMD values (four u32 lanes)
+    // A, B: TValue (simd lane data)
+    ADD_SIMD,
+    SUB_SIMD,
+    MUL_SIMD,
+    AND_SIMD,
+    OR_SIMD,
+    XOR_SIMD,
+
+    // Lanewise complement of a SIMD value
+    // A: TValue (simd lane data)
+    NOT_SIMD,
+
+    // Lanewise shift/rotate of a SIMD value by a constant count in [0, 31]
+    // A: TValue (simd lane data)
+    // B: int (count)
+    SHL_SIMD,
+    SHR_SIMD,
+    ROTL_SIMD,
+
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer
     // B: protoid
@@ -1169,6 +1212,7 @@ enum class IrValueKind : uint8_t
     Float,
     Double,
     Tvalue,
+    Simd, // 4-wide u32 lane data, register-resident like Tvalue but boxed into a LUA_TSIMD object when stored to a VM register
 
     Count
 };

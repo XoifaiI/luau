@@ -61,6 +61,7 @@ typedef struct lua_TValue
 #define ttisuserdata(o) (ttype(o) == LUA_TUSERDATA)
 #define ttisthread(o) (ttype(o) == LUA_TTHREAD)
 #define ttisbuffer(o) (ttype(o) == LUA_TBUFFER)
+#define ttissimd(o) (ttype(o) == LUA_TSIMD)
 #define ttislightuserdata(o) (ttype(o) == LUA_TLIGHTUSERDATA)
 #define ttisvector(o) (ttype(o) == LUA_TVECTOR)
 #define ttisupval(o) (ttype(o) == LUA_TUPVAL)
@@ -81,6 +82,7 @@ typedef struct lua_TValue
 #define bvalue(o) check_exp(ttisboolean(o), (o)->value.b)
 #define thvalue(o) check_exp(ttisthread(o), &(o)->value.gc->th)
 #define bufvalue(o) check_exp(ttisbuffer(o), &(o)->value.gc->buf)
+#define simdvalue(o) check_exp(ttissimd(o), &(o)->value.gc->simd)
 #define upvalue(o) check_exp(ttisupval(o), &(o)->value.gc->uv)
 #define classvalue(o) check_exp(ttisclass(o), &(o)->value.gc->lclass)
 #define objectvalue(o) check_exp(ttisobject(o), &(o)->value.gc->lobject)
@@ -183,6 +185,14 @@ typedef struct lua_TValue
         TValue* i_o = (obj); \
         i_o->value.gc = cast_to(GCObject*, (x)); \
         i_o->tt = LUA_TBUFFER; \
+        checkliveness(L->global, i_o); \
+    }
+
+#define setsimdvalue(L, obj, x) \
+    { \
+        TValue* i_o = (obj); \
+        i_o->value.gc = cast_to(GCObject*, (x)); \
+        i_o->tt = LUA_TSIMD; \
         checkliveness(L->global, i_o); \
     }
 
@@ -311,6 +321,15 @@ typedef struct LuauBuffer
 
     alignas(8) char data[1];
 } Buffer;
+
+// Boxed representation of a SIMD value: a fixed 128-bit payload (4 x uint32 lanes) with no GC children.
+// This is the heap form used by the interpreter and produced when a register-resident SIMD value escapes.
+typedef struct LuauSimd
+{
+    CommonHeader;
+
+    alignas(8) uint32_t data[4];
+} Simd;
 
 enum FeedbackVectorSlotKind
 {

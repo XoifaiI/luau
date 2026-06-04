@@ -252,6 +252,8 @@ declare buffer: {
     band: @checked (target: buffer, targetOffset: number, source: buffer, sourceOffset: number?, count: number?) -> (),
     bor: @checked (target: buffer, targetOffset: number, source: buffer, sourceOffset: number?, count: number?) -> (),
     bnot: @checked (b: buffer, offset: number, count: number?) -> (),
+    readu32x4: @checked (b: buffer, offset: number) -> any,
+    writeu32x4: @checked (b: buffer, offset: number, value: any) -> (),
     readi8: @checked (b: buffer, offset: number) -> number,
     readu8: @checked (b: buffer, offset: number) -> number,
     readi16: @checked (b: buffer, offset: number) -> number,
@@ -291,6 +293,8 @@ declare buffer: {
     band: @checked (target: buffer, targetOffset: number, source: buffer, sourceOffset: number?, count: number?) -> (),
     bor: @checked (target: buffer, targetOffset: number, source: buffer, sourceOffset: number?, count: number?) -> (),
     bnot: @checked (b: buffer, offset: number, count: number?) -> (),
+    readu32x4: @checked (b: buffer, offset: number) -> any,
+    writeu32x4: @checked (b: buffer, offset: number, value: any) -> (),
     readi8: @checked (b: buffer, offset: number) -> number,
     readu8: @checked (b: buffer, offset: number) -> number,
     readi16: @checked (b: buffer, offset: number) -> number,
@@ -311,6 +315,30 @@ declare buffer: {
     writestring: @checked (b: buffer, offset: number, value: string, count: number?) -> (),
     readbits: @checked (b: buffer, bitOffset: number, bitCount: number) -> number,
     writebits: @checked (b: buffer, bitOffset: number, bitCount: number, value: number) -> ()
+}
+
+)BUILTIN_SRC";
+
+static const char* const kBuiltinDefinitionSimdSrc = R"BUILTIN_SRC(
+
+-- simd values are opaque 128-bit lane bundles produced and consumed by the simd library
+declare extern type simd with
+end
+
+declare simd: {
+    create: @checked (a: number, b: number, c: number, d: number) -> simd,
+    splat: @checked (v: number) -> simd,
+    extract: @checked (v: simd, index: number) -> number,
+    add: @checked (a: simd, b: simd) -> simd,
+    sub: @checked (a: simd, b: simd) -> simd,
+    mul: @checked (a: simd, b: simd) -> simd,
+    band: @checked (a: simd, b: simd) -> simd,
+    bor: @checked (a: simd, b: simd) -> simd,
+    bxor: @checked (a: simd, b: simd) -> simd,
+    bnot: @checked (a: simd) -> simd,
+    shl: @checked (a: simd, count: number) -> simd,
+    shr: @checked (a: simd, count: number) -> simd,
+    rotl: @checked (a: simd, count: number) -> simd,
 }
 
 )BUILTIN_SRC";
@@ -440,6 +468,8 @@ std::string getBuiltinDefinitionSource()
         result += kBuiltinDefinitionBufferSrc;
     else
         result += kBuiltinDefinitionBufferSrc_NOINTEGER;
+
+    result += kBuiltinDefinitionSimdSrc;
 
     if (FFlag::LuauTypeCheckerVectorReadOnly)
     {

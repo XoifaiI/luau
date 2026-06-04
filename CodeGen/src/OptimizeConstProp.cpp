@@ -1748,6 +1748,10 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             state.substituteOrRecordVmRegLoad(inst);
         }
         break;
+    case IrCmd::LOAD_SIMD:
+        if (OP_A(inst).kind == IrOpKind::VmReg)
+            state.substituteOrRecordVmRegLoad(inst);
+        break;
     case IrCmd::LOAD_TVALUE:
         if (OP_A(inst).kind == IrOpKind::VmReg)
         {
@@ -2010,6 +2014,33 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             // One of the restrictions is that STORE_VECTOR converts double to float, so reusing the source is only possible if it comes from a float
             // The register versioning rules will stay the same and follow the correct invalidation
             state.valueMap[state.versionedVmRegLoad(IrCmd::LOAD_FLOAT, OP_A(inst))] = index;
+        }
+        break;
+    case IrCmd::STORE_SIMD:
+        if (OP_A(inst).kind == IrOpKind::VmReg)
+        {
+            // A store immediately followed by a load of the same value is redundant
+            if (OP_B(inst).kind == IrOpKind::Inst)
+            {
+                if (uint32_t* prevIdx = state.getPreviousVersionedLoadIndex(IrCmd::LOAD_SIMD, OP_A(inst)))
+                {
+                    if (*prevIdx == OP_B(inst).index)
+                    {
+                        kill(function, inst);
+                        break;
+                    }
+                }
+            }
+
+            state.invalidate(OP_A(inst));
+
+            // A SIMD store always writes a LUA_TSIMD-tagged value. Recording the tag lets redundant
+            // CHECK_TAG guards emitted by following simd.* builtins (whose inputs are provably simd)
+            // be elided, which in turn lets dead boxing stores be removed.
+            state.saveTag(OP_A(inst), LUA_TSIMD);
+
+            // Future loads of this register can reuse the lane data directly, eliding box and unbox
+            state.forwardVmRegStoreToLoad(inst, IrCmd::LOAD_SIMD);
         }
         break;
     case IrCmd::STORE_TVALUE:
@@ -2294,6 +2325,8 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             }
             else
             {
+                if (b == LUA_TSIMD || tag == LUA_TSIMD)
+                    fprintf(stderr, "[CHECKTAG-CONFLICT] tag=%d b=%d (LUA_TSIMD=%d)\n", int(tag), int(b), int(LUA_TSIMD));
                 replace(function, block, index, {IrCmd::JUMP, {OP_C(inst)}}); // Shows a conflict in assumptions on this path
             }
         }

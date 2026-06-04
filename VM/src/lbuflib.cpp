@@ -524,6 +524,34 @@ static int buffer_bnot(lua_State* L)
     return 0;
 }
 
+static int buffer_readu32x4(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+
+    if (isoutofbounds(offset, len, 16))
+        luaL_error(L, "buffer access out of bounds");
+
+    uint32_t* r = lua_newsimd(L);
+    memcpy(r, (char*)buf + unsigned(offset), 16);
+    return 1;
+}
+
+static int buffer_writeu32x4(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+    const uint32_t* v = luaL_checksimd(L, 3);
+
+    if (isoutofbounds(offset, len, 16))
+        luaL_error(L, "buffer access out of bounds");
+
+    memcpy((char*)buf + unsigned(offset), v, 16);
+    return 0;
+}
+
 static int buffer_readbits(lua_State* L)
 {
     size_t len = 0;
@@ -634,6 +662,8 @@ static const luaL_Reg bufferlib[] = {
     {"band", buffer_binop<buffer_op_and>},
     {"bor", buffer_binop<buffer_op_or>},
     {"bnot", buffer_bnot},
+    {"readu32x4", buffer_readu32x4},
+    {"writeu32x4", buffer_writeu32x4},
     {"readbits", buffer_readbits},
     {"writebits", buffer_writebits},
     {"readinteger", buffer_readlong},
@@ -670,6 +700,8 @@ static const luaL_Reg bufferlib_NOINTEGER[] = {
     {"band", buffer_binop<buffer_op_and>},
     {"bor", buffer_binop<buffer_op_or>},
     {"bnot", buffer_bnot},
+    {"readu32x4", buffer_readu32x4},
+    {"writeu32x4", buffer_writeu32x4},
     {"readbits", buffer_readbits},
     {"writebits", buffer_writebits},
     {NULL, NULL},

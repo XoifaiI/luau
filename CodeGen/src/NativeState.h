@@ -52,6 +52,8 @@ struct NativeContext
     void (*luaH_resizearray)(lua_State* L, LuaTable* t, int nasize) = nullptr;
     TValue* (*luaH_setnum)(lua_State* L, LuaTable* t, int key);
 
+    Simd* (*luaSimd_new)(lua_State* L) = nullptr;
+
     void (*luaC_barriertable)(lua_State* L, LuaTable* t, GCObject* v) = nullptr;
     void (*luaC_barrierf)(lua_State* L, GCObject* o, GCObject* v) = nullptr;
     void (*luaC_barrierback)(lua_State* L, GCObject* o, GCObject** gclist) = nullptr;

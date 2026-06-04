@@ -91,6 +91,8 @@ static const char* getTagName(uint8_t tag)
         return "tobject";
     case LUA_TINTEGER:
         return "tinteger";
+    case LUA_TSIMD:
+        return "tsimd";
     default:
         CODEGEN_ASSERT(!"Unknown type tag");
         LUAU_UNREACHABLE();
@@ -531,6 +533,34 @@ const char* getCmdName(IrCmd cmd)
         return "BUFFER_READI64";
     case IrCmd::BUFFER_WRITEI64:
         return "BUFFER_WRITEI64";
+    case IrCmd::BUFFER_READSIMD:
+        return "BUFFER_READSIMD";
+    case IrCmd::BUFFER_WRITESIMD:
+        return "BUFFER_WRITESIMD";
+    case IrCmd::LOAD_SIMD:
+        return "LOAD_SIMD";
+    case IrCmd::STORE_SIMD:
+        return "STORE_SIMD";
+    case IrCmd::ADD_SIMD:
+        return "ADD_SIMD";
+    case IrCmd::SUB_SIMD:
+        return "SUB_SIMD";
+    case IrCmd::MUL_SIMD:
+        return "MUL_SIMD";
+    case IrCmd::AND_SIMD:
+        return "AND_SIMD";
+    case IrCmd::OR_SIMD:
+        return "OR_SIMD";
+    case IrCmd::XOR_SIMD:
+        return "XOR_SIMD";
+    case IrCmd::NOT_SIMD:
+        return "NOT_SIMD";
+    case IrCmd::SHL_SIMD:
+        return "SHL_SIMD";
+    case IrCmd::SHR_SIMD:
+        return "SHR_SIMD";
+    case IrCmd::ROTL_SIMD:
+        return "ROTL_SIMD";
     case IrCmd::JUMP_CMP_PROTOID:
         return "JUMP_CMP_PROTOID";
     }

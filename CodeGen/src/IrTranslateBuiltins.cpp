@@ -1706,6 +1706,86 @@ static BuiltinImplResult translateBuiltinInt64Clamp(IrBuilder& build, int nparam
     return {BuiltinImplType::Full, 1};
 }
 
+static BuiltinImplResult translateBuiltinBufferReadSimd(IrBuilder& build, int nparams, int ra, int arg, IrOp args, IrOp arg3, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    IrOp buf, intIndex;
+    translateBufferArgsAndCheckBounds(build, nparams, arg, args, arg3, 16, pcpos, buf, intIndex, false);
+
+    IrOp result = build.inst(IrCmd::BUFFER_READSIMD, buf, intIndex, build.constTag(LUA_TBUFFER));
+    build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinBufferWriteSimd(IrBuilder& build, int nparams, int ra, int arg, IrOp args, IrOp arg3, int nresults, int pcpos)
+{
+    if (nparams < 3 || nresults > 0 || arg3.kind != IrOpKind::VmReg)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(arg3, LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp buf, intIndex;
+    translateBufferArgsAndCheckBounds(build, nparams, arg, args, arg3, 16, pcpos, buf, intIndex, false);
+
+    IrOp value = build.inst(IrCmd::LOAD_SIMD, arg3);
+    build.inst(IrCmd::BUFFER_WRITESIMD, buf, intIndex, value, build.constTag(LUA_TBUFFER));
+
+    return {BuiltinImplType::Full, 0};
+}
+
+static BuiltinImplResult translateBuiltinSimdBinary(IrBuilder& build, IrCmd cmd, int nparams, int ra, int arg, IrOp args, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1 || args.kind != IrOpKind::VmReg)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+    build.loadAndCheckTag(args, LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD, build.vmReg(arg));
+    IrOp b = build.inst(IrCmd::LOAD_SIMD, args);
+    IrOp result = build.inst(cmd, a, b);
+    build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinSimdNot(IrBuilder& build, int nparams, int ra, int arg, int nresults, int pcpos)
+{
+    if (nparams < 1 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD, build.vmReg(arg));
+    IrOp result = build.inst(IrCmd::NOT_SIMD, a);
+    build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinSimdShift(IrBuilder& build, IrCmd cmd, int nparams, int ra, int arg, IrOp args, int nresults, int pcpos)
+{
+    if (nparams < 2 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    // the lane count must be a compile-time integer constant in [0, 31] for the immediate packed shift,
+    // otherwise the call falls back to the simd library which handles a runtime count
+    std::optional<double> count = build.function.asDoubleOp(args);
+    if (!count || *count < 0.0 || *count >= 32.0 || double(int(*count)) != *count)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD, build.vmReg(arg));
+    IrOp result = build.inst(cmd, a, build.constInt(int(*count)));
+    build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
 BuiltinImplResult translateBuiltin(
     IrBuilder& build,
     int bfid,
@@ -1947,6 +2027,30 @@ BuiltinImplResult translateBuiltin(
         if (FFlag::LuauCodegenBufferInteger)
             return translateBuiltinBufferWrite(build, nparams, ra, arg, args, arg3, nresults, pcpos, IrCmd::BUFFER_WRITEI64, 8, IrCmd::NOP, true);
         return {BuiltinImplType::None, -1};
+    case LBF_BUFFER_READSIMD:
+        return translateBuiltinBufferReadSimd(build, nparams, ra, arg, args, arg3, nresults, pcpos);
+    case LBF_BUFFER_WRITESIMD:
+        return translateBuiltinBufferWriteSimd(build, nparams, ra, arg, args, arg3, nresults, pcpos);
+    case LBF_SIMD_ADD:
+        return translateBuiltinSimdBinary(build, IrCmd::ADD_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_SUB:
+        return translateBuiltinSimdBinary(build, IrCmd::SUB_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_MUL:
+        return translateBuiltinSimdBinary(build, IrCmd::MUL_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_BAND:
+        return translateBuiltinSimdBinary(build, IrCmd::AND_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_BOR:
+        return translateBuiltinSimdBinary(build, IrCmd::OR_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_BXOR:
+        return translateBuiltinSimdBinary(build, IrCmd::XOR_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_BNOT:
+        return translateBuiltinSimdNot(build, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_SHL:
+        return translateBuiltinSimdShift(build, IrCmd::SHL_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_SHR:
+        return translateBuiltinSimdShift(build, IrCmd::SHR_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_ROTL:
+        return translateBuiltinSimdShift(build, IrCmd::ROTL_SIMD, nparams, ra, arg, args, nresults, pcpos);
     case LBF_VECTOR_MAGNITUDE:
         return translateBuiltinVectorMagnitude(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_VECTOR_NORMALIZE:

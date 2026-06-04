@@ -144,6 +144,14 @@ void* luaL_checkbuffer(lua_State* L, int narg, size_t* len)
     return b;
 }
 
+uint32_t* luaL_checksimd(lua_State* L, int narg)
+{
+    uint32_t* s = lua_tosimd(L, narg);
+    if (!s)
+        tag_error(L, narg, LUA_TSIMD);
+    return s;
+}
+
 void luaL_checkstack(lua_State* L, int space, const char* mes)
 {
     if (!lua_checkstack(L, space))

@@ -363,6 +363,8 @@ target_sources(Luau.VM PRIVATE
     VM/src/lbuffer.cpp
     VM/src/lbuflib.cpp
     VM/src/lbuiltins.cpp
+    VM/src/lsimd.cpp
+    VM/src/lsimdlib.cpp
     VM/src/lcorolib.cpp
     VM/src/ldblib.cpp
     VM/src/ldebug.cpp
@@ -397,6 +399,7 @@ target_sources(Luau.VM PRIVATE
     VM/src/lbuffer.h
     VM/src/lbuiltins.h
     VM/src/lbytecode.h
+    VM/src/lsimd.h
     VM/src/lclass.h
     VM/src/lcommon.h
     VM/src/ldebug.h

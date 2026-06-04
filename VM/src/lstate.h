@@ -308,6 +308,7 @@ union GCObject
     struct LuauBuffer buf;
     struct LuauClass lclass;
     struct LuauObject lobject;
+    struct LuauSimd simd;
 };
 
 // macros to convert a GCObject into a specific value
@@ -319,6 +320,7 @@ union GCObject
 #define gco2uv(o) check_exp((o)->gch.tt == LUA_TUPVAL, &((o)->uv))
 #define gco2th(o) check_exp((o)->gch.tt == LUA_TTHREAD, &((o)->th))
 #define gco2buf(o) check_exp((o)->gch.tt == LUA_TBUFFER, &((o)->buf))
+#define gco2simd(o) check_exp((o)->gch.tt == LUA_TSIMD, &((o)->simd))
 #define gco2class(o) check_exp((o)->gch.tt == LUA_TCLASS, &((o)->lclass))
 #define gco2object(o) check_exp((o)->gch.tt == LUA_TOBJECT, &((o)->lobject))
 

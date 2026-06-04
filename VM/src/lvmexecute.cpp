@@ -1399,6 +1399,7 @@ reentry:
                     case LUA_TFUNCTION:
                     case LUA_TTHREAD:
                     case LUA_TBUFFER:
+                    case LUA_TSIMD:
                         pc += gcvalue(ra) == gcvalue(rb) ? LUAU_INSN_D(insn) : 1;
                         LUAU_ASSERT(unsigned(pc - cl->l.p->code) < unsigned(cl->l.p->sizecode));
                         VM_NEXT();
@@ -1532,6 +1533,7 @@ reentry:
                     case LUA_TFUNCTION:
                     case LUA_TTHREAD:
                     case LUA_TBUFFER:
+                    case LUA_TSIMD:
                         pc += gcvalue(ra) != gcvalue(rb) ? LUAU_INSN_D(insn) : 1;
                         LUAU_ASSERT(unsigned(pc - cl->l.p->code) < unsigned(cl->l.p->sizecode));
                         VM_NEXT();

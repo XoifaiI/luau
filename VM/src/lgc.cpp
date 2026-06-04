@@ -11,6 +11,7 @@
 #include "lmem.h"
 #include "ludata.h"
 #include "lbuffer.h"
+#include "lsimd.h"
 #include "lclass.h"
 
 #include <string.h>
@@ -283,6 +284,11 @@ static void reallymarkobject(global_State* g, GCObject* o)
     case LUA_TBUFFER:
     {
         gray2black(o); // buffers are never gray
+        return;
+    }
+    case LUA_TSIMD:
+    {
+        gray2black(o); // simd values are leaf objects and never gray
         return;
     }
     case LUA_TPROTO:
@@ -722,6 +728,9 @@ static void freeobj(lua_State* L, GCObject* o, lua_Page* page)
         break;
     case LUA_TBUFFER:
         luaB_freebuffer(L, gco2buf(o), page);
+        break;
+    case LUA_TSIMD:
+        luaSimd_free(L, gco2simd(o), page);
         break;
     case LUA_TCLASS:
         luaR_freeclass(L, gco2class(o), page);

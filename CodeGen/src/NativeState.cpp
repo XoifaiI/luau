@@ -8,6 +8,7 @@
 #include "lbuiltins.h"
 #include "lgc.h"
 #include "ltable.h"
+#include "lsimd.h"
 #include "lfunc.h"
 #include "lvm.h"
 
@@ -47,6 +48,8 @@ void initFunctions(NativeContext& context)
     context.luaH_clone = luaH_clone;
     context.luaH_resizearray = luaH_resizearray;
     context.luaH_setnum = luaH_setnum;
+
+    context.luaSimd_new = luaSimd_new;
 
     context.luaC_barriertable = luaC_barriertable;
     context.luaC_barrierf = luaC_barrierf;

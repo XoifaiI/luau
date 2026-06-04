@@ -452,7 +452,8 @@ static void displayHelp(const char* argv0)
 
 static int assertionHandler(const char* expr, const char* file, int line, const char* function)
 {
-    printf("%s(%d): ASSERTION FAILED: %s\n", file, line, expr);
+    fprintf(stderr, "%s(%d): ASSERTION FAILED: %s\n", file, line, expr);
+    fflush(stderr);
     return 1;
 }
 

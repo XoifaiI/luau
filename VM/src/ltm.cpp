@@ -33,6 +33,7 @@ const char* const luaT_typenames[] = {
     "buffer",
     "class",
     "object",
+    "simd",
 };
 
 const char* const luaT_eventname[] = {

@@ -2736,6 +2736,21 @@ const luau_FastFunction luauF_table[256] = {
     luauF_bufferreadlong,
     luauF_bufferwritelong,
 
+    // simd builtins have no interpreter FASTCALL fast path; they fall back to the simd/buffer library
+    // functions in the interpreter and are lowered to packed SSE inline by native code generation
+    luauF_missing, // LBF_BUFFER_READSIMD
+    luauF_missing, // LBF_BUFFER_WRITESIMD
+    luauF_missing, // LBF_SIMD_ADD
+    luauF_missing, // LBF_SIMD_SUB
+    luauF_missing, // LBF_SIMD_MUL
+    luauF_missing, // LBF_SIMD_BAND
+    luauF_missing, // LBF_SIMD_BOR
+    luauF_missing, // LBF_SIMD_BXOR
+    luauF_missing, // LBF_SIMD_BNOT
+    luauF_missing, // LBF_SIMD_SHL
+    luauF_missing, // LBF_SIMD_SHR
+    luauF_missing, // LBF_SIMD_ROTL
+
 // When adding builtins, add them above this line; what follows is 64 "dummy" entries with luauF_missing fallback.
 // This is important so that older versions of the runtime that don't support newer builtins automatically fall back via luauF_missing.
 // Given the builtin addition velocity this should always provide a larger compatibility window than bytecode versions suggest.

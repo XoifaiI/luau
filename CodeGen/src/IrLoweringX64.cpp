@@ -3289,6 +3289,103 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         }
         break;
 
+    case IrCmd::BUFFER_READSIMD:
+        inst.regX64 = regs.allocReg(SizeX64::xmmword, index);
+        build.vmovups(inst.regX64, xmmword[bufferAddrOp(OP_A(inst), OP_B(inst), tagOp(OP_C(inst)))]);
+        break;
+
+    case IrCmd::BUFFER_WRITESIMD:
+        build.vmovups(xmmword[bufferAddrOp(OP_A(inst), OP_B(inst), tagOp(OP_D(inst)))], regOp(OP_C(inst)));
+        break;
+
+    case IrCmd::LOAD_SIMD:
+    {
+        inst.regX64 = regs.allocReg(SizeX64::xmmword, index);
+
+        // the VM register holds a pointer to the boxed simd object; load it, then read the lane data
+        ScopedRegX64 ptr{regs, SizeX64::qword};
+        build.mov(ptr.reg, luauRegValue(vmRegOp(OP_A(inst))));
+        build.vmovups(inst.regX64, xmmword[ptr.reg + offsetof(Simd, data)]);
+        break;
+    }
+
+    case IrCmd::STORE_SIMD:
+    {
+        // allocate a fresh boxed simd object; the call wrapper spills the live lane data across the call
+        IrCallWrapperX64 callWrap(regs, build, index);
+        callWrap.addArgument(SizeX64::qword, rState);
+        callWrap.call(qword[rNativeContext + offsetof(NativeContext, luaSimd_new)]);
+
+        RegisterX64 obj = regs.takeReg(rax, kInvalidInstIdx);
+        build.vmovups(xmmword[obj + offsetof(Simd, data)], regOp(OP_B(inst)));
+        build.mov(luauRegValue(vmRegOp(OP_A(inst))), obj);
+        build.mov(luauRegTag(vmRegOp(OP_A(inst))), LUA_TSIMD);
+        regs.freeReg(obj);
+        break;
+    }
+
+    case IrCmd::ADD_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpaddd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::SUB_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpsubd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::MUL_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpmulld(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::AND_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpand(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::OR_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpor(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::XOR_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpxor(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::NOT_SIMD:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+
+        ScopedRegX64 ones{regs, SizeX64::xmmword};
+        build.vpcmpeqd(ones.reg, ones.reg, ones.reg); // all-ones, independent of contents
+        build.vpxor(inst.regX64, regOp(OP_A(inst)), ones.reg);
+        break;
+    }
+    case IrCmd::SHL_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+        build.vpslld(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
+        break;
+    case IrCmd::SHR_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+        build.vpsrld(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
+        break;
+    case IrCmd::ROTL_SIMD:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+
+        uint8_t n = uint8_t(intOp(OP_B(inst)));
+
+        if (n == 0)
+        {
+            if (inst.regX64 != regOp(OP_A(inst)))
+                build.vmovups(inst.regX64, regOp(OP_A(inst)));
+        }
+        else
+        {
+            ScopedRegX64 tmp{regs, SizeX64::xmmword};
+            build.vpslld(tmp.reg, regOp(OP_A(inst)), n);
+            build.vpsrld(inst.regX64, regOp(OP_A(inst)), uint8_t(32 - n));
+            build.vpor(inst.regX64, inst.regX64, tmp.reg);
+        }
+        break;
+    }
+
     case IrCmd::CHECK_DIV_INT64:
     {
         ScopedRegX64 tmpA{regs, SizeX64::qword};

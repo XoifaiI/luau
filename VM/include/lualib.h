@@ -46,6 +46,7 @@ LUALIB_API int luaL_newmetatable(lua_State* L, const char* tname);
 LUALIB_API void* luaL_checkudata(lua_State* L, int ud, const char* tname);
 
 LUALIB_API void* luaL_checkbuffer(lua_State* L, int narg, size_t* len);
+LUALIB_API uint32_t* luaL_checksimd(lua_State* L, int narg);
 
 LUALIB_API void luaL_where(lua_State* L, int lvl);
 LUALIB_API LUA_PRINTF_ATTR(2, 3) l_noret luaL_errorL(lua_State* L, const char* fmt, ...);
@@ -133,6 +134,9 @@ LUALIB_API int luaopen_bit32(lua_State* L);
 
 #define LUA_BUFFERLIBNAME "buffer"
 LUALIB_API int luaopen_buffer(lua_State* L);
+
+#define LUA_SIMDLIBNAME "simd"
+LUALIB_API int luaopen_simd(lua_State* L);
 
 #define LUA_UTF8LIBNAME "utf8"
 LUALIB_API int luaopen_utf8(lua_State* L);

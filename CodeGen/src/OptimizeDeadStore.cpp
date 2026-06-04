@@ -140,6 +140,11 @@ struct RemoveDeadStoreState
             value = OP_B(storeInst);
             kind = IrValueKind::Tvalue;
             break;
+        case IrCmd::STORE_SIMD:
+            // The stored lane data (OP_B) can be re-boxed into the slot on demand at a restore point
+            value = OP_B(storeInst);
+            kind = IrValueKind::Simd;
+            break;
         case IrCmd::STORE_SPLIT_TVALUE:
             value = OP_C(storeInst);
             if (value.kind == IrOpKind::Inst)
@@ -449,7 +454,7 @@ struct RemoveDeadStoreState
                         CODEGEN_ASSERT(regInfo.tagInstIdx == kInvalidInstIdx && regInfo.valueInstIdx == kInvalidInstIdx);
                         CODEGEN_ASSERT(
                             store.cmd == IrCmd::STORE_SPLIT_TVALUE || store.cmd == IrCmd::STORE_TVALUE || store.cmd == IrCmd::STORE_VECTOR ||
-                            (store.cmd == IrCmd::STORE_TAG && function.tagOp(OP_B(store)) == LUA_TNIL)
+                            store.cmd == IrCmd::STORE_SIMD || (store.cmd == IrCmd::STORE_TAG && function.tagOp(OP_B(store)) == LUA_TNIL)
                         );
 
                         recordStore(regInfo.tvalueInstIdx);
@@ -1188,6 +1193,39 @@ static void markDeadStoresInInst(RemoveDeadStoreState& state, IrBuilder& build, 
             regInfo.maybeGco = regInfo.knownTag == kUnknownTag || isGCO(regInfo.knownTag);
 
             state.hasGcoToClear |= regInfo.maybeGco;
+        }
+        break;
+    case IrCmd::STORE_SIMD:
+        // A SIMD store writes a whole TValue (boxed pointer + LUA_TSIMD tag), but on the hot path the value
+        // lives as raw lane data in a register and the box is materialized lazily. While unobserved the slot
+        // stays nil (a fresh local), so this is NOT treated as a collectable store: it is a removable whole
+        // store whose dead form is re-boxed on demand at a restore point (see recordHintBeforeKill / Simd kind).
+        if (OP_A(inst).kind == IrOpKind::VmReg)
+        {
+            int reg = vmRegOp(OP_A(inst));
+
+            if (function.cfg.captured.regs.test(reg))
+                return;
+
+            StoreRegInfo& regInfo = state.info[reg];
+
+            if (FFlag::LuauCodegenMarkDeadRegisters2)
+                regInfo.ignoreAtExit = false;
+
+            // Modelled like a partial value store (STORE_DOUBLE) so the exit-sync sinker picks it up: on the
+            // hot path the value is raw lane data and the slot stays nil until boxed at a restore point, so it
+            // is a removable non-collectable store. STORE_SIMD writes the LUA_TSIMD tag itself, so we record
+            // that as the known tag (no separate STORE_TAG); the box re-emitted at a cold edge writes both.
+            if (regInfo.knownTag != kUnknownTag)
+                state.killValueStore(regInfo);
+
+            regInfo.valueInstIdx = index;
+            regInfo.knownTag = LUA_TSIMD;
+
+            if (state.tagValuePairEstablished(regInfo))
+                regInfo.tvalueInstIdx = kInvalidInstIdx;
+
+            regInfo.maybeGco = false;
         }
         break;
     case IrCmd::STORE_SPLIT_TVALUE:
