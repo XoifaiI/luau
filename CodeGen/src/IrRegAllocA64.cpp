@@ -81,6 +81,9 @@ static int getReloadOffset(IrValueKind kind)
     case IrValueKind::Double:
         return offsetof(TValue, value.n);
     case IrValueKind::Tvalue:
+    case IrValueKind::Simd:
+        // SIMD has no A64 lowering (the function bails to the interpreter), but a spill may still be requested
+        // before the bail is observed; treat it like a full TValue so this never asserts on ARM.
         return 0;
     }
 

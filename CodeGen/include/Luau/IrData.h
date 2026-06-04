@@ -1083,6 +1083,28 @@ enum class IrCmd : uint8_t
     SHR_SIMD,
     ROTL_SIMD,
 
+    // Lanewise float (four f32 lanes) operations on two SIMD values
+    // A, B: TValue (simd lane data)
+    FADD_SIMD,
+    FSUB_SIMD,
+    FMUL_SIMD,
+    FDIV_SIMD,
+    FMIN_SIMD,
+    FMAX_SIMD,
+
+    // Lanewise float square root of a SIMD value
+    // A: TValue (simd lane data)
+    FSQRT_SIMD,
+
+    // Lanewise fused multiply-add of SIMD values: A * B + C
+    // A, B, C: TValue (simd lane data)
+    FMA_SIMD,
+
+    // Lanewise conversion of a SIMD value's lanes between signed int32 and float32
+    // A: TValue (simd lane data)
+    TOFLOAT_SIMD,
+    TOINT_SIMD,
+
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer
     // B: protoid

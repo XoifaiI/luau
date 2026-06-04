@@ -626,6 +626,14 @@ TEST_CASE_FIXTURE(AssemblyBuilderX64Fixture, "AVXTernaryInstructionForms")
 
     // packed 32-bit lane shuffle
     SINGLE_COMPARE(vpshufd(xmm1, xmm2, 0x1b), 0xc4, 0xe1, 0x79, 0x70, 0xca, 0x1b);
+
+    // packed byte shuffle (0F38 map, used for byte-aligned rotates)
+    SINGLE_COMPARE(vpshufb(xmm1, xmm2, xmm3), 0xc4, 0xe2, 0x69, 0x00, 0xcb);
+    SINGLE_COMPARE(vpshufb(xmm7, xmm12, xmmword[rcx + r10]), 0xc4, 0xa2, 0x19, 0x00, 0x3c, 0x11);
+
+    // packed int32 <-> float32 lane conversions
+    SINGLE_COMPARE(vcvtdq2ps(xmm1, xmm2), 0xc4, 0xe1, 0x78, 0x5b, 0xca);
+    SINGLE_COMPARE(vcvttps2dq(xmm1, xmm2), 0xc4, 0xe1, 0x7a, 0x5b, 0xca);
 }
 
 TEST_CASE_FIXTURE(AssemblyBuilderX64Fixture, "MiscInstructions")

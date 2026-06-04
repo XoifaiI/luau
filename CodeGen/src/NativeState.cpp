@@ -50,6 +50,7 @@ void initFunctions(NativeContext& context)
     context.luaH_setnum = luaH_setnum;
 
     context.luaSimd_new = luaSimd_new;
+    context.luaSimd_storeReuse = luaSimd_storeReuse;
 
     context.luaC_barriertable = luaC_barriertable;
     context.luaC_barrierf = luaC_barrierf;

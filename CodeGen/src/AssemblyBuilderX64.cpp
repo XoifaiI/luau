@@ -1161,6 +1161,21 @@ void AssemblyBuilderX64::vpshufd(RegisterX64 dst, OperandX64 src, uint8_t shuffl
     placeAvx("vpshufd", dst, noreg, src, shuffle, 0x70, false, AVX_0F, AVX_66);
 }
 
+void AssemblyBuilderX64::vpshufb(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpshufb", dst, src1, src2, 0x00, false, AVX_0F38, AVX_66);
+}
+
+void AssemblyBuilderX64::vcvtdq2ps(OperandX64 dst, OperandX64 src)
+{
+    placeAvx("vcvtdq2ps", dst, src, 0x5b, false, AVX_0F, AVX_NP);
+}
+
+void AssemblyBuilderX64::vcvttps2dq(OperandX64 dst, OperandX64 src)
+{
+    placeAvx("vcvttps2dq", dst, src, 0x5b, false, AVX_0F, AVX_F3);
+}
+
 void AssemblyBuilderX64::vdpps(OperandX64 dst, OperandX64 src1, OperandX64 src2, uint8_t mask)
 {
     placeAvx("vdpps", dst, src1, src2, mask, 0x40, false, AVX_0F3A, AVX_66);

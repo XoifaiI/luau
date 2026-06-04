@@ -6,4 +6,5 @@
 #define sizesimd() (sizeof(Simd))
 
 LUAI_FUNC Simd* luaSimd_new(lua_State* L);
+LUAI_FUNC Simd* luaSimd_storeReuse(lua_State* L, TValue* slot);
 LUAI_FUNC void luaSimd_free(lua_State* L, Simd* s, struct lua_Page* page);

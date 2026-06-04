@@ -566,7 +566,11 @@ struct ConstPropState
         // Record load of this register version for future substitution
         valueMap[versionedLoad] = instIdx;
 
-        createRegLink(instIdx, OP_A(loadInst));
+        // A freshly visited load is never linked yet. The SIMD move rewrite re-processes a load in place (converting
+        // LOAD_TVALUE to LOAD_SIMD of the same register), so the link from the original load can already be present;
+        // it points to the same register version and stays valid, so keep it rather than asserting on a re-create.
+        if (!instLink.contains(instIdx))
+            createRegLink(instIdx, OP_A(loadInst));
         return false;
     }
 

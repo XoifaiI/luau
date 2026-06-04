@@ -542,6 +542,16 @@ static void applyBuiltinCall(LuauBuiltinFunction bfid, BytecodeTypes& types)
     case LBF_SIMD_SHR:
     case LBF_SIMD_ROTL:
     case LBF_SIMD_BNOT:
+    case LBF_SIMD_FADD:
+    case LBF_SIMD_FSUB:
+    case LBF_SIMD_FMUL:
+    case LBF_SIMD_FDIV:
+    case LBF_SIMD_FMIN:
+    case LBF_SIMD_FMAX:
+    case LBF_SIMD_FSQRT:
+    case LBF_SIMD_FMA:
+    case LBF_SIMD_TOFLOAT:
+    case LBF_SIMD_TOINT:
         types.result = LBC_TYPE_ANY;
         break;
     case LBF_TABLE_INSERT:

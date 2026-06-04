@@ -109,6 +109,11 @@ struct IrLoweringX64
 
     uint32_t exitSyncAllocToken = 0;
     uint32_t exitSyncInstIdx = kInvalidInstIdx;
+
+    // For each VM register slot, true if it holds a SIMD value whose boxed object never escapes (it is only ever
+    // touched by LOAD_SIMD/STORE_SIMD). Such a box can be reused in place by STORE_SIMD instead of allocating a
+    // fresh box each time, which eliminates per-iteration allocation for loop-carried SIMD locals.
+    std::array<bool, 256> simdSlotReuse{};
 };
 
 } // namespace X64

@@ -211,6 +211,13 @@ public:
     // Packed 32-bit lane shuffle by an immediate selector
     void vpshufd(RegisterX64 dst, OperandX64 src, uint8_t shuffle);
 
+    // Packed byte shuffle by a control vector (used for byte-aligned rotates)
+    void vpshufb(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+
+    // Packed int32 <-> float32 lane conversions
+    void vcvtdq2ps(OperandX64 dst, OperandX64 src);
+    void vcvttps2dq(OperandX64 dst, OperandX64 src);
+
     void vdpps(OperandX64 dst, OperandX64 src1, OperandX64 src2, uint8_t mask);
     void vfmadd213ps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vfmadd213pd(OperandX64 dst, OperandX64 src1, OperandX64 src2);

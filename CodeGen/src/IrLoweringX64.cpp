@@ -6,6 +6,7 @@
 #include "Luau/IrCallWrapperX64.h"
 #include "Luau/IrData.h"
 #include "Luau/IrUtils.h"
+#include "Luau/IrVisitUseDef.h"
 #include "Luau/LoweringStats.h"
 
 #include "EmitBuiltinsX64.h"
@@ -27,6 +28,81 @@ namespace CodeGen
 namespace X64
 {
 
+// Returns true iff visitVmRegDefsUses models this command's VM-register defs/uses. It must mirror that function's
+// switch exactly. Commands it does not model (the CHECK_* guards, the JUMP_CMP_*/compare family, etc.) only read a
+// register's tag or scalar value for a guard or branch; they never propagate the register's TValue as data, so they
+// cannot make a boxed SIMD value escape. The SIMD box-reuse escape analysis below relies on that property: any
+// command not listed here is benign and is skipped (calling the visitor on it would trip its unhandled-register
+// assertion in debug builds).
+static bool visitorModelsVmRegDefsUses(IrCmd cmd)
+{
+    switch (cmd)
+    {
+    case IrCmd::LOAD_TAG:
+    case IrCmd::LOAD_POINTER:
+    case IrCmd::LOAD_DOUBLE:
+    case IrCmd::LOAD_INT:
+    case IrCmd::LOAD_INT64:
+    case IrCmd::LOAD_FLOAT:
+    case IrCmd::LOAD_TVALUE:
+    case IrCmd::LOAD_SIMD:
+    case IrCmd::STORE_TAG:
+    case IrCmd::STORE_EXTRA:
+    case IrCmd::STORE_POINTER:
+    case IrCmd::STORE_DOUBLE:
+    case IrCmd::STORE_INT:
+    case IrCmd::STORE_INT64:
+    case IrCmd::STORE_VECTOR:
+    case IrCmd::STORE_TVALUE:
+    case IrCmd::STORE_SPLIT_TVALUE:
+    case IrCmd::STORE_SIMD:
+    case IrCmd::CMP_ANY:
+    case IrCmd::CMP_TAG:
+    case IrCmd::JUMP_IF_TRUTHY:
+    case IrCmd::JUMP_IF_FALSY:
+    case IrCmd::JUMP_EQ_TAG:
+    case IrCmd::DO_ARITH:
+    case IrCmd::GET_TABLE:
+    case IrCmd::SET_TABLE:
+    case IrCmd::DO_LEN:
+    case IrCmd::GET_CACHED_IMPORT:
+    case IrCmd::CONCAT:
+    case IrCmd::GET_UPVALUE:
+    case IrCmd::SET_UPVALUE:
+    case IrCmd::INTERRUPT:
+    case IrCmd::BARRIER_OBJ:
+    case IrCmd::BARRIER_TABLE_FORWARD:
+    case IrCmd::CLOSE_UPVALS:
+    case IrCmd::CAPTURE:
+    case IrCmd::SETLIST:
+    case IrCmd::CALL:
+    case IrCmd::RETURN:
+    case IrCmd::FASTCALL:
+    case IrCmd::INVOKE_FASTCALL:
+    case IrCmd::FORGLOOP:
+    case IrCmd::FORGLOOP_FALLBACK:
+    case IrCmd::FORGPREP_XNEXT_FALLBACK:
+    case IrCmd::FALLBACK_GETGLOBAL:
+    case IrCmd::FALLBACK_SETGLOBAL:
+    case IrCmd::FALLBACK_GETTABLEKS:
+    case IrCmd::FALLBACK_SETTABLEKS:
+    case IrCmd::FALLBACK_NAMECALL:
+    case IrCmd::FALLBACK_PREPVARARGS:
+    case IrCmd::FALLBACK_GETVARARGS:
+    case IrCmd::FALLBACK_DUPCLOSURE:
+    case IrCmd::FALLBACK_FORGPREP:
+    case IrCmd::ADJUST_STACK_TO_REG:
+    case IrCmd::ADJUST_STACK_TO_TOP:
+    case IrCmd::GET_TYPEOF:
+    case IrCmd::FINDUPVAL:
+    case IrCmd::MARK_USED:
+    case IrCmd::MARK_DEAD:
+        return true;
+    default:
+        return false;
+    }
+}
+
 IrLoweringX64::IrLoweringX64(AssemblyBuilderX64& build, ModuleHelpers& helpers, IrFunction& function, LoweringStats* stats)
     : build(build)
     , helpers(helpers)
@@ -45,6 +121,96 @@ IrLoweringX64::IrLoweringX64(AssemblyBuilderX64& build, ModuleHelpers& helpers, 
     );
 
     build.align(kFunctionAlignment, X64::AlignmentDataX64::Ud2);
+
+    // Determine which SIMD register slots hold a box that never escapes (only LOAD_SIMD/STORE_SIMD touch them).
+    // A non-escaping slot can have its box reused in place by STORE_SIMD instead of allocating a new one.
+    struct SimdEscapeVisitor
+    {
+        std::array<bool, 256>& escapes;
+        void def(IrOp op, int offset = 0)
+        {
+            escapes[vmRegOp(op) + offset] = true;
+        }
+        void use(IrOp op, int offset = 0)
+        {
+            escapes[vmRegOp(op) + offset] = true;
+        }
+        void maybeDef(IrOp op)
+        {
+            if (op.kind == IrOpKind::VmReg)
+                escapes[vmRegOp(op)] = true;
+        }
+        void maybeUse(IrOp op)
+        {
+            if (op.kind == IrOpKind::VmReg)
+                escapes[vmRegOp(op)] = true;
+        }
+        void defRange(int start, int count)
+        {
+            int end = count == -1 ? 255 : start + count - 1;
+            for (int i = start; i <= end && i < 256; i++)
+                escapes[i] = true;
+        }
+        void useRange(int start, int count)
+        {
+            int end = count == -1 ? 255 : start + count - 1;
+            for (int i = start; i <= end && i < 256; i++)
+                escapes[i] = true;
+        }
+        void useVarargs(uint8_t start)
+        {
+            for (int i = start; i < 256; i++)
+                escapes[i] = true;
+        }
+        void capture(int reg)
+        {
+            escapes[reg] = true;
+        }
+    };
+
+    bool anySimdStore = false;
+    for (IrInst& inst : function.instructions)
+    {
+        if (inst.cmd == IrCmd::STORE_SIMD)
+        {
+            anySimdStore = true;
+            break;
+        }
+    }
+
+    // Box reuse only matters for functions that produce SIMD values; skipping the rest avoids the analysis cost
+    // and keeps the visitor (which asserts on unhandled VM-register commands) off non-SIMD code paths.
+    if (anySimdStore)
+    {
+        std::array<bool, 256> escapes{};
+        std::array<bool, 256> hasSimdStore{};
+
+        for (IrInst& inst : function.instructions)
+        {
+            if (inst.cmd == IrCmd::NOP)
+                continue;
+
+            // LOAD_SIMD reads lane data and STORE_SIMD writes it: neither exposes the box as an aliasable TValue
+            if (inst.cmd == IrCmd::STORE_SIMD)
+            {
+                if (OP_A(inst).kind == IrOpKind::VmReg)
+                    hasSimdStore[vmRegOp(OP_A(inst))] = true;
+                continue;
+            }
+            if (inst.cmd == IrCmd::LOAD_SIMD)
+                continue;
+
+            // Commands the visitor does not model only read registers for guards/branches and cannot escape a box.
+            if (!visitorModelsVmRegDefsUses(inst.cmd))
+                continue;
+
+            SimdEscapeVisitor visitor{escapes};
+            visitVmRegDefsUses(visitor, function, inst);
+        }
+
+        for (int i = 0; i < 256; i++)
+            simdSlotReuse[i] = hasSimdStore[i] && !escapes[i] && !function.cfg.captured.regs.test(i);
+    }
 }
 
 void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
@@ -3311,6 +3477,22 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
 
     case IrCmd::STORE_SIMD:
     {
+        // For a slot whose box never escapes, reuse the existing box (or allocate one once) and overwrite its lane
+        // data in place. This avoids an allocation on every store, which is what makes loop-carried SIMD locals fast.
+        if (OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))])
+        {
+            IrCallWrapperX64 callWrap(regs, build, index);
+            callWrap.addArgument(SizeX64::qword, rState);
+            // luaSimd_storeReuse(L, &slot) returns the box to fill and updates the slot tag/value when it allocates
+            callWrap.addArgument(SizeX64::qword, luauRegAddress(vmRegOp(OP_A(inst))));
+            callWrap.call(qword[rNativeContext + offsetof(NativeContext, luaSimd_storeReuse)]);
+
+            RegisterX64 obj = regs.takeReg(rax, kInvalidInstIdx);
+            build.vmovups(xmmword[obj + offsetof(Simd, data)], regOp(OP_B(inst)));
+            regs.freeReg(obj);
+            break;
+        }
+
         // allocate a fresh boxed simd object; the call wrapper spills the live lane data across the call
         IrCallWrapperX64 callWrap(regs, build, index);
         callWrap.addArgument(SizeX64::qword, rState);
@@ -3348,6 +3530,61 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
         build.vpxor(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
         break;
+    case IrCmd::FADD_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vaddps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FSUB_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vsubps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FMUL_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vmulps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FDIV_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vdivps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FMIN_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vminps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FMAX_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vmaxps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::FSQRT_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+        build.vsqrtps(inst.regX64, regOp(OP_A(inst)));
+        break;
+    case IrCmd::TOFLOAT_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+        build.vcvtdq2ps(inst.regX64, regOp(OP_A(inst)));
+        break;
+    case IrCmd::TOINT_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+        build.vcvttps2dq(inst.regX64, regOp(OP_A(inst)));
+        break;
+    case IrCmd::FMA_SIMD:
+    {
+        if ((build.features & Feature_FMA3) != 0)
+        {
+            // vfmadd213ps computes dst = dst * src1 + src2, so dst must start holding the first multiplicand
+            inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
+            if (inst.regX64 != regOp(OP_A(inst)))
+                build.vmovups(inst.regX64, regOp(OP_A(inst)));
+            build.vfmadd213ps(inst.regX64, regOp(OP_B(inst)), regOp(OP_C(inst)));
+        }
+        else
+        {
+            // No FMA3: fall back to a separate multiply and add (two roundings instead of one)
+            inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+            build.vmulps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+            build.vaddps(inst.regX64, inst.regX64, regOp(OP_C(inst)));
+        }
+        break;
+    }
     case IrCmd::NOT_SIMD:
     {
         inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
@@ -3375,6 +3612,16 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         {
             if (inst.regX64 != regOp(OP_A(inst)))
                 build.vmovups(inst.regX64, regOp(OP_A(inst)));
+        }
+        else if (n == 8)
+        {
+            // rotl by 8 is a per-lane byte rotation [b0 b1 b2 b3] -> [b3 b0 b1 b2]: one shuffle vs shift+shift+or
+            build.vpshufb(inst.regX64, regOp(OP_A(inst)), build.u32x4(0x02010003, 0x06050407, 0x0a09080b, 0x0e0d0c0f));
+        }
+        else if (n == 16)
+        {
+            // rotl by 16 swaps the 16-bit halves of each lane [b0 b1 b2 b3] -> [b2 b3 b0 b1]
+            build.vpshufb(inst.regX64, regOp(OP_A(inst)), build.u32x4(0x01000302, 0x05040706, 0x09080b0a, 0x0d0c0f0e));
         }
         else
         {

@@ -795,6 +795,16 @@ struct TypeMapVisitor : AstVisitor
             case LBF_SIMD_SHL:
             case LBF_SIMD_SHR:
             case LBF_SIMD_ROTL:
+            case LBF_SIMD_FADD:
+            case LBF_SIMD_FSUB:
+            case LBF_SIMD_FMUL:
+            case LBF_SIMD_FDIV:
+            case LBF_SIMD_FMIN:
+            case LBF_SIMD_FMAX:
+            case LBF_SIMD_FSQRT:
+            case LBF_SIMD_FMA:
+            case LBF_SIMD_TOFLOAT:
+            case LBF_SIMD_TOINT:
                 break;
             case LBF_MATH_ABS:
             case LBF_MATH_ACOS:

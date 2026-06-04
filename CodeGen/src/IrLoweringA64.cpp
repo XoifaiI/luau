@@ -3682,8 +3682,44 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         break;
     }
 
+    // The 4-wide SIMD value ops are only lowered on x64. On A64 we have no NEON lowering yet, so bail the whole
+    // function to the interpreter (which runs the simd.* / buffer.*u32x4 builtins via the C library). This keeps
+    // ARM clients correct; without it these instructions would be silently skipped or crash the register allocator.
+    case IrCmd::BUFFER_READSIMD:
+    case IrCmd::BUFFER_WRITESIMD:
+    case IrCmd::LOAD_SIMD:
+    case IrCmd::STORE_SIMD:
+    case IrCmd::ADD_SIMD:
+    case IrCmd::SUB_SIMD:
+    case IrCmd::MUL_SIMD:
+    case IrCmd::AND_SIMD:
+    case IrCmd::OR_SIMD:
+    case IrCmd::XOR_SIMD:
+    case IrCmd::NOT_SIMD:
+    case IrCmd::SHL_SIMD:
+    case IrCmd::SHR_SIMD:
+    case IrCmd::ROTL_SIMD:
+    case IrCmd::FADD_SIMD:
+    case IrCmd::FSUB_SIMD:
+    case IrCmd::FMUL_SIMD:
+    case IrCmd::FDIV_SIMD:
+    case IrCmd::FMIN_SIMD:
+    case IrCmd::FMAX_SIMD:
+    case IrCmd::FSQRT_SIMD:
+    case IrCmd::FMA_SIMD:
+    case IrCmd::TOFLOAT_SIMD:
+    case IrCmd::TOINT_SIMD:
+        error = true;
+        break;
+
         // To handle unsupported instructions, add "case IrCmd::OP" and make sure to set error = true!
     }
+
+    // If lowering an unsupported instruction set the error flag, skip the post-lowering bookkeeping: the function
+    // is being abandoned and its register-free/value-tracking steps can assert on operands that were never allocated
+    // (e.g. the inputs of a bailed SIMD instruction). The caller observes hasError() and discards the native code.
+    if (error)
+        return;
 
     valueTracker.afterInstLowering(inst, index);
 

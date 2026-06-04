@@ -339,6 +339,18 @@ declare simd: {
     shl: @checked (a: simd, count: number) -> simd,
     shr: @checked (a: simd, count: number) -> simd,
     rotl: @checked (a: simd, count: number) -> simd,
+    fadd: @checked (a: simd, b: simd) -> simd,
+    fsub: @checked (a: simd, b: simd) -> simd,
+    fmul: @checked (a: simd, b: simd) -> simd,
+    fdiv: @checked (a: simd, b: simd) -> simd,
+    fmin: @checked (a: simd, b: simd) -> simd,
+    fmax: @checked (a: simd, b: simd) -> simd,
+    fsqrt: @checked (a: simd) -> simd,
+    fma: @checked (a: simd, b: simd, c: simd) -> simd,
+    tofloat: @checked (a: simd) -> simd,
+    toint: @checked (a: simd) -> simd,
+    fcreate: @checked (a: number, b: number, c: number, d: number) -> simd,
+    fextract: @checked (v: simd, index: number) -> number,
 }
 
 )BUILTIN_SRC";

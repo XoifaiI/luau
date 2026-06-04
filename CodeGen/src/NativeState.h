@@ -53,6 +53,7 @@ struct NativeContext
     TValue* (*luaH_setnum)(lua_State* L, LuaTable* t, int key);
 
     Simd* (*luaSimd_new)(lua_State* L) = nullptr;
+    Simd* (*luaSimd_storeReuse)(lua_State* L, TValue* slot) = nullptr;
 
     void (*luaC_barriertable)(lua_State* L, LuaTable* t, GCObject* v) = nullptr;
     void (*luaC_barrierf)(lua_State* L, GCObject* o, GCObject* v) = nullptr;

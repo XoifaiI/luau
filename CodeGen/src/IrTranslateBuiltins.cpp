@@ -1754,7 +1754,7 @@ static BuiltinImplResult translateBuiltinSimdBinary(IrBuilder& build, IrCmd cmd,
     return {BuiltinImplType::Full, 1};
 }
 
-static BuiltinImplResult translateBuiltinSimdNot(IrBuilder& build, int nparams, int ra, int arg, int nresults, int pcpos)
+static BuiltinImplResult translateBuiltinSimdUnary(IrBuilder& build, IrCmd cmd, int nparams, int ra, int arg, int nresults, int pcpos)
 {
     if (nparams < 1 || nresults > 1)
         return {BuiltinImplType::None, -1};
@@ -1762,7 +1762,25 @@ static BuiltinImplResult translateBuiltinSimdNot(IrBuilder& build, int nparams, 
     build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
 
     IrOp a = build.inst(IrCmd::LOAD_SIMD, build.vmReg(arg));
-    IrOp result = build.inst(IrCmd::NOT_SIMD, a);
+    IrOp result = build.inst(cmd, a);
+    build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
+
+    return {BuiltinImplType::Full, 1};
+}
+
+static BuiltinImplResult translateBuiltinSimdFma(IrBuilder& build, int nparams, int ra, int arg, IrOp args, IrOp arg3, int nresults, int pcpos)
+{
+    if (nparams < 3 || nresults > 1 || args.kind != IrOpKind::VmReg || arg3.kind != IrOpKind::VmReg)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+    build.loadAndCheckTag(args, LUA_TSIMD, build.vmExit(pcpos));
+    build.loadAndCheckTag(arg3, LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(IrCmd::LOAD_SIMD, build.vmReg(arg));
+    IrOp b = build.inst(IrCmd::LOAD_SIMD, args);
+    IrOp c = build.inst(IrCmd::LOAD_SIMD, arg3);
+    IrOp result = build.inst(IrCmd::FMA_SIMD, a, b, c);
     build.inst(IrCmd::STORE_SIMD, build.vmReg(ra), result);
 
     return {BuiltinImplType::Full, 1};
@@ -2046,13 +2064,33 @@ BuiltinImplResult translateBuiltin(
     case LBF_SIMD_BXOR:
         return translateBuiltinSimdBinary(build, IrCmd::XOR_SIMD, nparams, ra, arg, args, nresults, pcpos);
     case LBF_SIMD_BNOT:
-        return translateBuiltinSimdNot(build, nparams, ra, arg, nresults, pcpos);
+        return translateBuiltinSimdUnary(build, IrCmd::NOT_SIMD, nparams, ra, arg, nresults, pcpos);
     case LBF_SIMD_SHL:
         return translateBuiltinSimdShift(build, IrCmd::SHL_SIMD, nparams, ra, arg, args, nresults, pcpos);
     case LBF_SIMD_SHR:
         return translateBuiltinSimdShift(build, IrCmd::SHR_SIMD, nparams, ra, arg, args, nresults, pcpos);
     case LBF_SIMD_ROTL:
         return translateBuiltinSimdShift(build, IrCmd::ROTL_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FADD:
+        return translateBuiltinSimdBinary(build, IrCmd::FADD_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FSUB:
+        return translateBuiltinSimdBinary(build, IrCmd::FSUB_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FMUL:
+        return translateBuiltinSimdBinary(build, IrCmd::FMUL_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FDIV:
+        return translateBuiltinSimdBinary(build, IrCmd::FDIV_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FMIN:
+        return translateBuiltinSimdBinary(build, IrCmd::FMIN_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FMAX:
+        return translateBuiltinSimdBinary(build, IrCmd::FMAX_SIMD, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_FSQRT:
+        return translateBuiltinSimdUnary(build, IrCmd::FSQRT_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_TOFLOAT:
+        return translateBuiltinSimdUnary(build, IrCmd::TOFLOAT_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_TOINT:
+        return translateBuiltinSimdUnary(build, IrCmd::TOINT_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_FMA:
+        return translateBuiltinSimdFma(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_VECTOR_MAGNITUDE:
         return translateBuiltinVectorMagnitude(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_VECTOR_NORMALIZE:

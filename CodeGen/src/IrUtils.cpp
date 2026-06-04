@@ -427,6 +427,16 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::SHL_SIMD:
     case IrCmd::SHR_SIMD:
     case IrCmd::ROTL_SIMD:
+    case IrCmd::FADD_SIMD:
+    case IrCmd::FSUB_SIMD:
+    case IrCmd::FMUL_SIMD:
+    case IrCmd::FDIV_SIMD:
+    case IrCmd::FMIN_SIMD:
+    case IrCmd::FMAX_SIMD:
+    case IrCmd::FSQRT_SIMD:
+    case IrCmd::FMA_SIMD:
+    case IrCmd::TOFLOAT_SIMD:
+    case IrCmd::TOINT_SIMD:
         return IrValueKind::Simd;
     case IrCmd::BUFFER_WRITESIMD:
     case IrCmd::STORE_SIMD:

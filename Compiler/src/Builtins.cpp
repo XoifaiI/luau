@@ -287,6 +287,26 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_SHR;
         if (builtin.method == "rotl")
             return LBF_SIMD_ROTL;
+        if (builtin.method == "fadd")
+            return LBF_SIMD_FADD;
+        if (builtin.method == "fsub")
+            return LBF_SIMD_FSUB;
+        if (builtin.method == "fmul")
+            return LBF_SIMD_FMUL;
+        if (builtin.method == "fdiv")
+            return LBF_SIMD_FDIV;
+        if (builtin.method == "fmin")
+            return LBF_SIMD_FMIN;
+        if (builtin.method == "fmax")
+            return LBF_SIMD_FMAX;
+        if (builtin.method == "fsqrt")
+            return LBF_SIMD_FSQRT;
+        if (builtin.method == "fma")
+            return LBF_SIMD_FMA;
+        if (builtin.method == "tofloat")
+            return LBF_SIMD_TOFLOAT;
+        if (builtin.method == "toint")
+            return LBF_SIMD_TOINT;
     }
 
     if (builtin.object == "vector")
@@ -698,9 +718,20 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD_SHL:
     case LBF_SIMD_SHR:
     case LBF_SIMD_ROTL:
+    case LBF_SIMD_FADD:
+    case LBF_SIMD_FSUB:
+    case LBF_SIMD_FMUL:
+    case LBF_SIMD_FDIV:
+    case LBF_SIMD_FMIN:
+    case LBF_SIMD_FMAX:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_BNOT:
+    case LBF_SIMD_FSQRT:
+    case LBF_SIMD_TOFLOAT:
+    case LBF_SIMD_TOINT:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
+    case LBF_SIMD_FMA:
+        return {3, 1, BuiltinInfo::Flag_NoneSafe};
 
     case LBF_VECTOR_MAGNITUDE:
     case LBF_VECTOR_NORMALIZE:
