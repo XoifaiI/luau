@@ -1216,8 +1216,11 @@ static void markDeadStoresInInst(RemoveDeadStoreState& state, IrBuilder& build, 
             // hot path the value is raw lane data and the slot stays nil until boxed at a restore point, so it
             // is a removable non-collectable store. STORE_SIMD writes the LUA_TSIMD tag itself, so we record
             // that as the known tag (no separate STORE_TAG); the box re-emitted at a cold edge writes both.
-            if (regInfo.knownTag != kUnknownTag)
-                state.killValueStore(regInfo);
+            // Because it overwrites the whole slot (tag + value), any prior tag or value store to a reused slot
+            // is dead: clear both before establishing the SIMD value, otherwise a stale tag store would be
+            // fused with this value and the tag would disagree with the recorded LUA_TSIMD.
+            state.killTagStore(regInfo);
+            state.killValueStore(regInfo);
 
             regInfo.valueInstIdx = index;
             regInfo.knownTag = LUA_TSIMD;

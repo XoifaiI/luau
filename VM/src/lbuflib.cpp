@@ -524,6 +524,178 @@ static int buffer_bnot(lua_State* L)
     return 0;
 }
 
+// Lanewise 32-bit add in place: dst[i] += src[i] over each u32 lane (with 32-bit wraparound). Unlike the bitwise
+// ops this cannot be done bytewise (carry crosses byte boundaries), so it has its own u32-granular kernels.
+static void buffer_add_u32_scalar(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 4 <= len; i += 4)
+    {
+        uint32_t d, s;
+        memcpy(&d, dst + i, 4);
+        memcpy(&s, src + i, 4);
+        d += s;
+        memcpy(dst + i, &d, 4);
+    }
+}
+
+#ifdef LUAU_TARGET_AVX2
+LUAU_TARGET_AVX2 static void buffer_add_u32_avx2(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(dst + i));
+        __m256i s = _mm256_loadu_si256((const __m256i*)(src + i));
+        _mm256_storeu_si256((__m256i*)(dst + i), _mm256_add_epi32(d, s));
+    }
+
+    buffer_add_u32_scalar(dst + i, src + i, len - i);
+}
+
+static void buffer_add_u32_sse2(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128i d = _mm_loadu_si128((const __m128i*)(dst + i));
+        __m128i s = _mm_loadu_si128((const __m128i*)(src + i));
+        _mm_storeu_si128((__m128i*)(dst + i), _mm_add_epi32(d, s));
+    }
+
+    buffer_add_u32_scalar(dst + i, src + i, len - i);
+}
+#endif
+
+static void buffer_add_u32_bytes(char* dst, const char* src, unsigned len)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+
+    if (hasavx2)
+        buffer_add_u32_avx2(dst, src, len);
+    else
+        buffer_add_u32_sse2(dst, src, len);
+#else
+    buffer_add_u32_scalar(dst, src, len);
+#endif
+}
+
+static int buffer_add(lua_State* L)
+{
+    size_t tlen = 0;
+    void* tbuf = luaL_checkbuffer(L, 1, &tlen);
+    int toffset = luaL_checkinteger(L, 2);
+
+    size_t slen = 0;
+    void* sbuf = luaL_checkbuffer(L, 3, &slen);
+    int soffset = luaL_optinteger(L, 4, 0);
+
+    int size = luaL_optinteger(L, 5, int(slen) - soffset);
+
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+
+    if (size % 4 != 0)
+        luaL_error(L, "buffer.add size must be a multiple of 4");
+
+    if (isoutofbounds(soffset, slen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    if (isoutofbounds(toffset, tlen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_add_u32_bytes((char*)tbuf + toffset, (const char*)sbuf + soffset, unsigned(size));
+    return 0;
+}
+
+// Lanewise 32-bit rotate-left in place by a compile-time-known count in [1, 31]: dst[i] = rotl(dst[i], n).
+static void buffer_rotl_u32_scalar(char* dst, unsigned len, int n)
+{
+    unsigned i = 0;
+
+    for (; i + 4 <= len; i += 4)
+    {
+        uint32_t d;
+        memcpy(&d, dst + i, 4);
+        d = (d << n) | (d >> (32 - n));
+        memcpy(dst + i, &d, 4);
+    }
+}
+
+#ifdef LUAU_TARGET_AVX2
+LUAU_TARGET_AVX2 static void buffer_rotl_u32_avx2(char* dst, unsigned len, int n)
+{
+    unsigned i = 0;
+
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(dst + i));
+        __m256i r = _mm256_or_si256(_mm256_slli_epi32(d, n), _mm256_srli_epi32(d, 32 - n));
+        _mm256_storeu_si256((__m256i*)(dst + i), r);
+    }
+
+    buffer_rotl_u32_scalar(dst + i, len - i, n);
+}
+
+static void buffer_rotl_u32_sse2(char* dst, unsigned len, int n)
+{
+    unsigned i = 0;
+
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128i d = _mm_loadu_si128((const __m128i*)(dst + i));
+        __m128i r = _mm_or_si128(_mm_slli_epi32(d, n), _mm_srli_epi32(d, 32 - n));
+        _mm_storeu_si128((__m128i*)(dst + i), r);
+    }
+
+    buffer_rotl_u32_scalar(dst + i, len - i, n);
+}
+#endif
+
+static void buffer_rotl_u32_bytes(char* dst, unsigned len, int n)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+
+    if (hasavx2)
+        buffer_rotl_u32_avx2(dst, len, n);
+    else
+        buffer_rotl_u32_sse2(dst, len, n);
+#else
+    buffer_rotl_u32_scalar(dst, len, n);
+#endif
+}
+
+static int buffer_rotl(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+    int n = luaL_checkinteger(L, 3);
+
+    int size = luaL_optinteger(L, 4, int(len) - offset);
+
+    if (n < 0 || n > 31)
+        luaL_error(L, "buffer.rotl amount must be in [0, 31]");
+
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+
+    if (size % 4 != 0)
+        luaL_error(L, "buffer.rotl size must be a multiple of 4");
+
+    if (isoutofbounds(offset, len, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    if (n != 0)
+        buffer_rotl_u32_bytes((char*)buf + unsigned(offset), unsigned(size), n);
+    return 0;
+}
+
 static int buffer_readu32x4(lua_State* L)
 {
     size_t len = 0;
@@ -662,6 +834,8 @@ static const luaL_Reg bufferlib[] = {
     {"band", buffer_binop<buffer_op_and>},
     {"bor", buffer_binop<buffer_op_or>},
     {"bnot", buffer_bnot},
+    {"add", buffer_add},
+    {"rotl", buffer_rotl},
     {"readu32x4", buffer_readu32x4},
     {"writeu32x4", buffer_writeu32x4},
     {"readbits", buffer_readbits},
@@ -700,6 +874,8 @@ static const luaL_Reg bufferlib_NOINTEGER[] = {
     {"band", buffer_binop<buffer_op_and>},
     {"bor", buffer_binop<buffer_op_or>},
     {"bnot", buffer_bnot},
+    {"add", buffer_add},
+    {"rotl", buffer_rotl},
     {"readu32x4", buffer_readu32x4},
     {"writeu32x4", buffer_writeu32x4},
     {"readbits", buffer_readbits},
