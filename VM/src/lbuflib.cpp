@@ -524,67 +524,91 @@ static int buffer_bnot(lua_State* L)
     return 0;
 }
 
-// Lanewise 32-bit add in place: dst[i] += src[i] over each u32 lane (with 32-bit wraparound). Unlike the bitwise
-// ops this cannot be done bytewise (carry crosses byte boundaries), so it has its own u32-granular kernels.
-static void buffer_add_u32_scalar(char* dst, const char* src, unsigned len)
+// Lanewise 32-bit integer arithmetic in place: dst[i] = dst[i] OP src[i] over each u32 lane (with wraparound).
+// Unlike the bitwise ops this cannot be done bytewise (carry/borrow crosses byte boundaries), so it has its own
+// u32-granular kernels via an op tag. Multiply uses _mm_mullo_epi32 / _mm256_mullo_epi32 (SSE4.1 / AVX2).
+struct buffer_iop_add
 {
-    unsigned i = 0;
+    static uint32_t lane(uint32_t a, uint32_t b) { return a + b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i a, __m128i b) { return _mm_add_epi32(a, b); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i a, __m256i b) { return _mm256_add_epi32(a, b); }
+#endif
+};
+struct buffer_iop_sub
+{
+    static uint32_t lane(uint32_t a, uint32_t b) { return a - b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i a, __m128i b) { return _mm_sub_epi32(a, b); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i a, __m256i b) { return _mm256_sub_epi32(a, b); }
+#endif
+};
+struct buffer_iop_mul
+{
+    static uint32_t lane(uint32_t a, uint32_t b) { return a * b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i a, __m128i b) { return _mm_mullo_epi32(a, b); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i a, __m256i b) { return _mm256_mullo_epi32(a, b); }
+#endif
+};
 
-    for (; i + 4 <= len; i += 4)
+template<typename Op>
+static void buffer_ibinop_scalar(char* dst, const char* src, unsigned len)
+{
+    for (unsigned i = 0; i + 4 <= len; i += 4)
     {
         uint32_t d, s;
         memcpy(&d, dst + i, 4);
         memcpy(&s, src + i, 4);
-        d += s;
+        d = Op::lane(d, s);
         memcpy(dst + i, &d, 4);
     }
 }
 
 #ifdef LUAU_TARGET_AVX2
-LUAU_TARGET_AVX2 static void buffer_add_u32_avx2(char* dst, const char* src, unsigned len)
+template<typename Op>
+LUAU_TARGET_AVX2 static void buffer_ibinop_avx2(char* dst, const char* src, unsigned len)
 {
     unsigned i = 0;
-
     for (; i + 32 <= len; i += 32)
     {
         __m256i d = _mm256_loadu_si256((const __m256i*)(dst + i));
         __m256i s = _mm256_loadu_si256((const __m256i*)(src + i));
-        _mm256_storeu_si256((__m256i*)(dst + i), _mm256_add_epi32(d, s));
+        _mm256_storeu_si256((__m256i*)(dst + i), Op::wide(d, s));
     }
-
-    buffer_add_u32_scalar(dst + i, src + i, len - i);
+    buffer_ibinop_scalar<Op>(dst + i, src + i, len - i);
 }
 
-static void buffer_add_u32_sse2(char* dst, const char* src, unsigned len)
+template<typename Op>
+static void buffer_ibinop_sse2(char* dst, const char* src, unsigned len)
 {
     unsigned i = 0;
-
     for (; i + 16 <= len; i += 16)
     {
         __m128i d = _mm_loadu_si128((const __m128i*)(dst + i));
         __m128i s = _mm_loadu_si128((const __m128i*)(src + i));
-        _mm_storeu_si128((__m128i*)(dst + i), _mm_add_epi32(d, s));
+        _mm_storeu_si128((__m128i*)(dst + i), Op::half(d, s));
     }
-
-    buffer_add_u32_scalar(dst + i, src + i, len - i);
+    buffer_ibinop_scalar<Op>(dst + i, src + i, len - i);
 }
 #endif
 
-static void buffer_add_u32_bytes(char* dst, const char* src, unsigned len)
+template<typename Op>
+static void buffer_ibinop_bytes(char* dst, const char* src, unsigned len)
 {
 #ifdef LUAU_TARGET_AVX2
     static const bool hasavx2 = buffer_hasavx2();
-
     if (hasavx2)
-        buffer_add_u32_avx2(dst, src, len);
+        buffer_ibinop_avx2<Op>(dst, src, len);
     else
-        buffer_add_u32_sse2(dst, src, len);
+        buffer_ibinop_sse2<Op>(dst, src, len);
 #else
-    buffer_add_u32_scalar(dst, src, len);
+    buffer_ibinop_scalar<Op>(dst, src, len);
 #endif
 }
 
-static int buffer_add(lua_State* L)
+template<typename Op>
+static int buffer_ibinop(lua_State* L)
 {
     size_t tlen = 0;
     void* tbuf = luaL_checkbuffer(L, 1, &tlen);
@@ -598,17 +622,14 @@ static int buffer_add(lua_State* L)
 
     if (size < 0)
         luaL_error(L, "buffer access out of bounds");
-
     if (size % 4 != 0)
-        luaL_error(L, "buffer.add size must be a multiple of 4");
-
+        luaL_error(L, "buffer integer op size must be a multiple of 4");
     if (isoutofbounds(soffset, slen, unsigned(size)))
         luaL_error(L, "buffer access out of bounds");
-
     if (isoutofbounds(toffset, tlen, unsigned(size)))
         luaL_error(L, "buffer access out of bounds");
 
-    buffer_add_u32_bytes((char*)tbuf + toffset, (const char*)sbuf + soffset, unsigned(size));
+    buffer_ibinop_bytes<Op>((char*)tbuf + toffset, (const char*)sbuf + soffset, unsigned(size));
     return 0;
 }
 
@@ -696,6 +717,317 @@ static int buffer_rotl(lua_State* L)
     return 0;
 }
 
+// Lanewise 32-bit FLOAT arithmetic in place: dst[i] = dst[i] OP src[i] over each f32 lane. Like the u32 add, the
+// lanes are 4-byte granular (size must be a multiple of 4); the op tag supplies scalar/SSE/AVX2 float kernels.
+struct buffer_fop_add
+{
+    static float lane(float a, float b) { return a + b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128 half(__m128 a, __m128 b) { return _mm_add_ps(a, b); }
+    LUAU_TARGET_AVX2 static __m256 wide(__m256 a, __m256 b) { return _mm256_add_ps(a, b); }
+#endif
+};
+struct buffer_fop_sub
+{
+    static float lane(float a, float b) { return a - b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128 half(__m128 a, __m128 b) { return _mm_sub_ps(a, b); }
+    LUAU_TARGET_AVX2 static __m256 wide(__m256 a, __m256 b) { return _mm256_sub_ps(a, b); }
+#endif
+};
+struct buffer_fop_mul
+{
+    static float lane(float a, float b) { return a * b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128 half(__m128 a, __m128 b) { return _mm_mul_ps(a, b); }
+    LUAU_TARGET_AVX2 static __m256 wide(__m256 a, __m256 b) { return _mm256_mul_ps(a, b); }
+#endif
+};
+struct buffer_fop_div
+{
+    static float lane(float a, float b) { return a / b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128 half(__m128 a, __m128 b) { return _mm_div_ps(a, b); }
+    LUAU_TARGET_AVX2 static __m256 wide(__m256 a, __m256 b) { return _mm256_div_ps(a, b); }
+#endif
+};
+struct buffer_fop_min
+{
+    static float lane(float a, float b) { return a < b ? a : b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128 half(__m128 a, __m128 b) { return _mm_min_ps(a, b); }
+    LUAU_TARGET_AVX2 static __m256 wide(__m256 a, __m256 b) { return _mm256_min_ps(a, b); }
+#endif
+};
+struct buffer_fop_max
+{
+    static float lane(float a, float b) { return a > b ? a : b; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128 half(__m128 a, __m128 b) { return _mm_max_ps(a, b); }
+    LUAU_TARGET_AVX2 static __m256 wide(__m256 a, __m256 b) { return _mm256_max_ps(a, b); }
+#endif
+};
+
+template<typename Op>
+static void buffer_fbinop_scalar(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+    for (; i + 4 <= len; i += 4)
+    {
+        float a, b;
+        memcpy(&a, dst + i, 4);
+        memcpy(&b, src + i, 4);
+        a = Op::lane(a, b);
+        memcpy(dst + i, &a, 4);
+    }
+}
+
+#ifdef LUAU_TARGET_AVX2
+template<typename Op>
+LUAU_TARGET_AVX2 static void buffer_fbinop_avx2(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256 d = _mm256_loadu_ps((const float*)(dst + i));
+        __m256 s = _mm256_loadu_ps((const float*)(src + i));
+        _mm256_storeu_ps((float*)(dst + i), Op::wide(d, s));
+    }
+    buffer_fbinop_scalar<Op>(dst + i, src + i, len - i);
+}
+
+template<typename Op>
+static void buffer_fbinop_sse2(char* dst, const char* src, unsigned len)
+{
+    unsigned i = 0;
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128 d = _mm_loadu_ps((const float*)(dst + i));
+        __m128 s = _mm_loadu_ps((const float*)(src + i));
+        _mm_storeu_ps((float*)(dst + i), Op::half(d, s));
+    }
+    buffer_fbinop_scalar<Op>(dst + i, src + i, len - i);
+}
+#endif
+
+template<typename Op>
+static void buffer_fbinop_bytes(char* dst, const char* src, unsigned len)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+    if (hasavx2)
+        buffer_fbinop_avx2<Op>(dst, src, len);
+    else
+        buffer_fbinop_sse2<Op>(dst, src, len);
+#else
+    buffer_fbinop_scalar<Op>(dst, src, len);
+#endif
+}
+
+template<typename Op>
+static int buffer_fbinop(lua_State* L)
+{
+    size_t tlen = 0;
+    void* tbuf = luaL_checkbuffer(L, 1, &tlen);
+    int toffset = luaL_checkinteger(L, 2);
+
+    size_t slen = 0;
+    void* sbuf = luaL_checkbuffer(L, 3, &slen);
+    int soffset = luaL_optinteger(L, 4, 0);
+
+    int size = luaL_optinteger(L, 5, int(slen) - soffset);
+
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+
+    if (size % 4 != 0)
+        luaL_error(L, "buffer float op size must be a multiple of 4");
+
+    if (isoutofbounds(soffset, slen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    if (isoutofbounds(toffset, tlen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_fbinop_bytes<Op>((char*)tbuf + toffset, (const char*)sbuf + soffset, unsigned(size));
+    return 0;
+}
+
+// Lanewise 32-bit logical shift in place by a runtime count in [0, 31]: dst[i] <<= n (shl) or >>= n (shr).
+struct buffer_sop_shl
+{
+    static uint32_t lane(uint32_t x, int n) { return x << n; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i x, int n) { return _mm_slli_epi32(x, n); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i x, int n) { return _mm256_slli_epi32(x, n); }
+#endif
+};
+struct buffer_sop_shr
+{
+    static uint32_t lane(uint32_t x, int n) { return x >> n; }
+#ifdef LUAU_TARGET_AVX2
+    static __m128i half(__m128i x, int n) { return _mm_srli_epi32(x, n); }
+    LUAU_TARGET_AVX2 static __m256i wide(__m256i x, int n) { return _mm256_srli_epi32(x, n); }
+#endif
+};
+
+template<typename Op>
+static void buffer_sunop_scalar(char* dst, unsigned len, int n)
+{
+    for (unsigned i = 0; i + 4 <= len; i += 4)
+    {
+        uint32_t d;
+        memcpy(&d, dst + i, 4);
+        d = Op::lane(d, n);
+        memcpy(dst + i, &d, 4);
+    }
+}
+
+#ifdef LUAU_TARGET_AVX2
+template<typename Op>
+LUAU_TARGET_AVX2 static void buffer_sunop_avx2(char* dst, unsigned len, int n)
+{
+    unsigned i = 0;
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256i d = _mm256_loadu_si256((const __m256i*)(dst + i));
+        _mm256_storeu_si256((__m256i*)(dst + i), Op::wide(d, n));
+    }
+    buffer_sunop_scalar<Op>(dst + i, len - i, n);
+}
+
+template<typename Op>
+static void buffer_sunop_sse2(char* dst, unsigned len, int n)
+{
+    unsigned i = 0;
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128i d = _mm_loadu_si128((const __m128i*)(dst + i));
+        _mm_storeu_si128((__m128i*)(dst + i), Op::half(d, n));
+    }
+    buffer_sunop_scalar<Op>(dst + i, len - i, n);
+}
+#endif
+
+template<typename Op>
+static void buffer_sunop_bytes(char* dst, unsigned len, int n)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+    if (hasavx2)
+        buffer_sunop_avx2<Op>(dst, len, n);
+    else
+        buffer_sunop_sse2<Op>(dst, len, n);
+#else
+    buffer_sunop_scalar<Op>(dst, len, n);
+#endif
+}
+
+template<typename Op>
+static int buffer_sunop(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+    int n = luaL_checkinteger(L, 3);
+
+    int size = luaL_optinteger(L, 4, int(len) - offset);
+
+    if (n < 0 || n > 31)
+        luaL_error(L, "buffer shift amount must be in [0, 31]");
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+    if (size % 4 != 0)
+        luaL_error(L, "buffer shift size must be a multiple of 4");
+    if (isoutofbounds(offset, len, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_sunop_bytes<Op>((char*)buf + unsigned(offset), unsigned(size), n);
+    return 0;
+}
+
+// Lanewise f32 fused multiply-add in place: dst[i] = dst[i] * mul[i] + add[i], in ONE memory pass (mul-then-add
+// rounding). The motivating case is an audio mix / image composite out = out*gain + src without two separate passes.
+static void buffer_fma_scalar(char* dst, const char* m, const char* a, unsigned len)
+{
+    for (unsigned i = 0; i + 4 <= len; i += 4)
+    {
+        float d, x, y;
+        memcpy(&d, dst + i, 4);
+        memcpy(&x, m + i, 4);
+        memcpy(&y, a + i, 4);
+        d = d * x + y;
+        memcpy(dst + i, &d, 4);
+    }
+}
+
+#ifdef LUAU_TARGET_AVX2
+LUAU_TARGET_AVX2 static void buffer_fma_avx2(char* dst, const char* m, const char* a, unsigned len)
+{
+    unsigned i = 0;
+    for (; i + 32 <= len; i += 32)
+    {
+        __m256 d = _mm256_loadu_ps((const float*)(dst + i));
+        __m256 x = _mm256_loadu_ps((const float*)(m + i));
+        __m256 y = _mm256_loadu_ps((const float*)(a + i));
+        _mm256_storeu_ps((float*)(dst + i), _mm256_add_ps(_mm256_mul_ps(d, x), y));
+    }
+    buffer_fma_scalar(dst + i, m + i, a + i, len - i);
+}
+
+static void buffer_fma_sse2(char* dst, const char* m, const char* a, unsigned len)
+{
+    unsigned i = 0;
+    for (; i + 16 <= len; i += 16)
+    {
+        __m128 d = _mm_loadu_ps((const float*)(dst + i));
+        __m128 x = _mm_loadu_ps((const float*)(m + i));
+        __m128 y = _mm_loadu_ps((const float*)(a + i));
+        _mm_storeu_ps((float*)(dst + i), _mm_add_ps(_mm_mul_ps(d, x), y));
+    }
+    buffer_fma_scalar(dst + i, m + i, a + i, len - i);
+}
+#endif
+
+static void buffer_fma_bytes(char* dst, const char* m, const char* a, unsigned len)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+    if (hasavx2)
+        buffer_fma_avx2(dst, m, a, len);
+    else
+        buffer_fma_sse2(dst, m, a, len);
+#else
+    buffer_fma_scalar(dst, m, a, len);
+#endif
+}
+
+static int buffer_fma(lua_State* L)
+{
+    size_t dlen = 0;
+    void* dbuf = luaL_checkbuffer(L, 1, &dlen);
+    int doff = luaL_checkinteger(L, 2);
+    size_t mlen = 0;
+    void* mbuf = luaL_checkbuffer(L, 3, &mlen);
+    int moff = luaL_optinteger(L, 4, 0);
+    size_t alen = 0;
+    void* abuf = luaL_checkbuffer(L, 5, &alen);
+    int aoff = luaL_optinteger(L, 6, 0);
+
+    int size = luaL_optinteger(L, 7, int(dlen) - doff);
+
+    if (size < 0)
+        luaL_error(L, "buffer access out of bounds");
+    if (size % 4 != 0)
+        luaL_error(L, "buffer.fma size must be a multiple of 4");
+    if (isoutofbounds(doff, dlen, unsigned(size)) || isoutofbounds(moff, mlen, unsigned(size)) ||
+        isoutofbounds(aoff, alen, unsigned(size)))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_fma_bytes((char*)dbuf + doff, (const char*)mbuf + moff, (const char*)abuf + aoff, unsigned(size));
+    return 0;
+}
+
 static int buffer_readu32x4(lua_State* L)
 {
     size_t len = 0;
@@ -721,6 +1053,41 @@ static int buffer_writeu32x4(lua_State* L)
         luaL_error(L, "buffer access out of bounds");
 
     memcpy((char*)buf + unsigned(offset), v, 16);
+    return 0;
+}
+
+// Bridge the vector type to buffer storage (vertex/particle data is buffer-backed): read/write LUA_VECTOR_SIZE
+// consecutive f32 lanes as a single vector value, no per-component readf32/writef32 juggling.
+static int buffer_readvector(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+
+    if (isoutofbounds(offset, len, LUA_VECTOR_SIZE * 4))
+        luaL_error(L, "buffer access out of bounds");
+
+    float v[LUA_VECTOR_SIZE];
+    memcpy(v, (char*)buf + unsigned(offset), LUA_VECTOR_SIZE * 4);
+#if LUA_VECTOR_SIZE == 4
+    lua_pushvector(L, v[0], v[1], v[2], v[3]);
+#else
+    lua_pushvector(L, v[0], v[1], v[2]);
+#endif
+    return 1;
+}
+
+static int buffer_writevector(lua_State* L)
+{
+    size_t len = 0;
+    void* buf = luaL_checkbuffer(L, 1, &len);
+    int offset = luaL_checkinteger(L, 2);
+    const float* v = luaL_checkvector(L, 3);
+
+    if (isoutofbounds(offset, len, LUA_VECTOR_SIZE * 4))
+        luaL_error(L, "buffer access out of bounds");
+
+    memcpy((char*)buf + unsigned(offset), v, LUA_VECTOR_SIZE * 4);
     return 0;
 }
 
@@ -834,8 +1201,21 @@ static const luaL_Reg bufferlib[] = {
     {"band", buffer_binop<buffer_op_and>},
     {"bor", buffer_binop<buffer_op_or>},
     {"bnot", buffer_bnot},
-    {"add", buffer_add},
+    {"add", buffer_ibinop<buffer_iop_add>},
+    {"sub", buffer_ibinop<buffer_iop_sub>},
+    {"mul", buffer_ibinop<buffer_iop_mul>},
+    {"shl", buffer_sunop<buffer_sop_shl>},
+    {"shr", buffer_sunop<buffer_sop_shr>},
     {"rotl", buffer_rotl},
+    {"fadd", buffer_fbinop<buffer_fop_add>},
+    {"fsub", buffer_fbinop<buffer_fop_sub>},
+    {"fmul", buffer_fbinop<buffer_fop_mul>},
+    {"fdiv", buffer_fbinop<buffer_fop_div>},
+    {"fmin", buffer_fbinop<buffer_fop_min>},
+    {"fmax", buffer_fbinop<buffer_fop_max>},
+    {"fma", buffer_fma},
+    {"readvector", buffer_readvector},
+    {"writevector", buffer_writevector},
     {"readu32x4", buffer_readu32x4},
     {"writeu32x4", buffer_writeu32x4},
     {"readbits", buffer_readbits},
@@ -874,8 +1254,21 @@ static const luaL_Reg bufferlib_NOINTEGER[] = {
     {"band", buffer_binop<buffer_op_and>},
     {"bor", buffer_binop<buffer_op_or>},
     {"bnot", buffer_bnot},
-    {"add", buffer_add},
+    {"add", buffer_ibinop<buffer_iop_add>},
+    {"sub", buffer_ibinop<buffer_iop_sub>},
+    {"mul", buffer_ibinop<buffer_iop_mul>},
+    {"shl", buffer_sunop<buffer_sop_shl>},
+    {"shr", buffer_sunop<buffer_sop_shr>},
     {"rotl", buffer_rotl},
+    {"fadd", buffer_fbinop<buffer_fop_add>},
+    {"fsub", buffer_fbinop<buffer_fop_sub>},
+    {"fmul", buffer_fbinop<buffer_fop_mul>},
+    {"fdiv", buffer_fbinop<buffer_fop_div>},
+    {"fmin", buffer_fbinop<buffer_fop_min>},
+    {"fmax", buffer_fbinop<buffer_fop_max>},
+    {"fma", buffer_fma},
+    {"readvector", buffer_readvector},
+    {"writevector", buffer_writevector},
     {"readu32x4", buffer_readu32x4},
     {"writeu32x4", buffer_writeu32x4},
     {"readbits", buffer_readbits},
