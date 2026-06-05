@@ -390,8 +390,25 @@ declare simd: {
     toint: @checked (a: simd) -> simd,
     shuffle: @checked (v: simd, control: number) -> simd,
     fcreate: @checked (a: number, b: number, c: number, d: number) -> simd,
+    fsplat: @checked (v: number) -> simd,
     fextract: @checked (v: simd, index: number) -> number,
     funpack: @checked (v: simd) -> (number, number, number, number),
+    feq: @checked (a: simd, b: simd) -> simd,
+    flt: @checked (a: simd, b: simd) -> simd,
+    fgt: @checked (a: simd, b: simd) -> simd,
+    select: @checked (mask: simd, a: simd, b: simd) -> simd,
+    eq: @checked (a: simd, b: simd) -> simd,
+    lt: @checked (a: simd, b: simd) -> simd,
+    gt: @checked (a: simd, b: simd) -> simd,
+    sum: @checked (v: simd) -> number,
+    hmin: @checked (v: simd) -> number,
+    hmax: @checked (v: simd) -> number,
+    hband: @checked (v: simd) -> number,
+    hbor: @checked (v: simd) -> number,
+    hbxor: @checked (v: simd) -> number,
+    fsum: @checked (v: simd) -> number,
+    fhmin: @checked (v: simd) -> number,
+    fhmax: @checked (v: simd) -> number,
 }
 
 -- 8-wide (256-bit) integer lane ops; values reuse the opaque simd type (same boxed object, all 8 lanes)
@@ -421,6 +438,23 @@ declare simd256: {
     fma: @checked (a: simd, b: simd, c: simd) -> simd,
     tofloat: @checked (a: simd) -> simd,
     toint: @checked (a: simd) -> simd,
+    fsplat: @checked (v: number) -> simd,
+    feq: @checked (a: simd, b: simd) -> simd,
+    flt: @checked (a: simd, b: simd) -> simd,
+    fgt: @checked (a: simd, b: simd) -> simd,
+    select: @checked (mask: simd, a: simd, b: simd) -> simd,
+    eq: @checked (a: simd, b: simd) -> simd,
+    lt: @checked (a: simd, b: simd) -> simd,
+    gt: @checked (a: simd, b: simd) -> simd,
+    sum: @checked (v: simd) -> number,
+    hmin: @checked (v: simd) -> number,
+    hmax: @checked (v: simd) -> number,
+    hband: @checked (v: simd) -> number,
+    hbor: @checked (v: simd) -> number,
+    hbxor: @checked (v: simd) -> number,
+    fsum: @checked (v: simd) -> number,
+    fhmin: @checked (v: simd) -> number,
+    fhmax: @checked (v: simd) -> number,
 }
 
 -- Element-typed namespaces matching the buffer suffixes (preferred over simd/simd256). Same opaque value type;
@@ -442,6 +476,16 @@ declare u32x4: {
     rotl: @checked (a: simd, count: number) -> simd,
     shuffle: @checked (v: simd, control: number) -> simd,
     tofloat: @checked (a: simd) -> simd,
+    select: @checked (mask: simd, a: simd, b: simd) -> simd,
+    eq: @checked (a: simd, b: simd) -> simd,
+    lt: @checked (a: simd, b: simd) -> simd,
+    gt: @checked (a: simd, b: simd) -> simd,
+    sum: @checked (v: simd) -> number,
+    hmin: @checked (v: simd) -> number,
+    hmax: @checked (v: simd) -> number,
+    hband: @checked (v: simd) -> number,
+    hbor: @checked (v: simd) -> number,
+    hbxor: @checked (v: simd) -> number,
 }
 
 declare f32x4: {
@@ -458,6 +502,13 @@ declare f32x4: {
     sqrt: @checked (a: simd) -> simd,
     fma: @checked (a: simd, b: simd, c: simd) -> simd,
     toint: @checked (a: simd) -> simd,
+    eq: @checked (a: simd, b: simd) -> simd,
+    lt: @checked (a: simd, b: simd) -> simd,
+    gt: @checked (a: simd, b: simd) -> simd,
+    sum: @checked (v: simd) -> number,
+    hmin: @checked (v: simd) -> number,
+    hmax: @checked (v: simd) -> number,
+    select: @checked (mask: simd, a: simd, b: simd) -> simd,
 }
 
 declare u32x8: {
@@ -477,6 +528,16 @@ declare u32x8: {
     rotl: @checked (a: simd, count: number) -> simd,
     shuffle: @checked (v: simd, control: number) -> simd,
     tofloat: @checked (a: simd) -> simd,
+    select: @checked (mask: simd, a: simd, b: simd) -> simd,
+    eq: @checked (a: simd, b: simd) -> simd,
+    lt: @checked (a: simd, b: simd) -> simd,
+    gt: @checked (a: simd, b: simd) -> simd,
+    sum: @checked (v: simd) -> number,
+    hmin: @checked (v: simd) -> number,
+    hmax: @checked (v: simd) -> number,
+    hband: @checked (v: simd) -> number,
+    hbor: @checked (v: simd) -> number,
+    hbxor: @checked (v: simd) -> number,
 }
 
 declare f32x8: {
@@ -493,6 +554,13 @@ declare f32x8: {
     sqrt: @checked (a: simd) -> simd,
     fma: @checked (a: simd, b: simd, c: simd) -> simd,
     toint: @checked (a: simd) -> simd,
+    eq: @checked (a: simd, b: simd) -> simd,
+    lt: @checked (a: simd, b: simd) -> simd,
+    gt: @checked (a: simd, b: simd) -> simd,
+    sum: @checked (v: simd) -> number,
+    hmin: @checked (v: simd) -> number,
+    hmax: @checked (v: simd) -> number,
+    select: @checked (mask: simd, a: simd, b: simd) -> simd,
 }
 
 )BUILTIN_SRC";

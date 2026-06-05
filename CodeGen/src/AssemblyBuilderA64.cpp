@@ -1005,6 +1005,19 @@ void AssemblyBuilderA64::ins_4s(RegisterA64 dst, uint8_t dstIndex, RegisterA64 s
     commit();
 }
 
+void AssemblyBuilderA64::dup_4s(RegisterA64 dst, RegisterA64 src)
+{
+    // DUP (general): broadcast a 32-bit W register to all four lanes of dst.4s
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src.kind == KindA64::w);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,w%d\n", "dup", dst.index, src.index);
+
+    place(dst.index | (src.index << 5) | 0x4E040C00);
+
+    commit();
+}
+
 void AssemblyBuilderA64::dup_4s(RegisterA64 dst, RegisterA64 src, uint8_t index)
 {
     if (dst.kind == KindA64::s)
@@ -1059,6 +1072,34 @@ void AssemblyBuilderA64::fcmeq_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64
 
     //                Q U      ESz Rm    Opcode Rn    Rd
     uint32_t op = 0b0'1'0'01110001'00000'111001'00000'00000;
+
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+
+    commit();
+}
+
+void AssemblyBuilderA64::cmeq_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    // integer lane equality: 0xffffffff where src1 == src2, else 0
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "cmeq", dst.index, src1.index, src2.index);
+
+    //                Q U  ESz    Rm    Opcode Rn    Rd
+    uint32_t op = 0b0'1'1'01110'10'1'00000'10001'1'00000'00000;
+
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+
+    commit();
+}
+
+void AssemblyBuilderA64::cmhi_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    // unsigned compare: 0xffffffff where src1 > src2 (unsigned), else 0
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "cmhi", dst.index, src1.index, src2.index);
+
+    //                Q U  ESz    Rm    Opcode Rn    Rd
+    uint32_t op = 0b0'1'1'01110'10'1'00000'00110'1'00000'00000;
 
     place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
 

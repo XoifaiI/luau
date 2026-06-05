@@ -3525,6 +3525,74 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
         build.vpshufd(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
         break;
+    case IrCmd::EQ_FSIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vcmpeqps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::LT_FSIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vcmpltps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::GT_FSIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vcmpgtps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::EQ_SIMD:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpcmpeqd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::GT_SIMD:
+    {
+        // unsigned a > b via the sign-bias trick: flip each lane's high bit, then signed compare
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        ScopedRegX64 ta{regs, SizeX64::xmmword};
+        ScopedRegX64 tb{regs, SizeX64::xmmword};
+        build.vpxor(ta.reg, regOp(OP_A(inst)), build.u32x4(0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpxor(tb.reg, regOp(OP_B(inst)), build.u32x4(0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpcmpgtd(inst.regX64, ta.reg, tb.reg);
+        break;
+    }
+    case IrCmd::LT_SIMD:
+    {
+        // unsigned a < b == b > a
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst), OP_B(inst)});
+        ScopedRegX64 ta{regs, SizeX64::xmmword};
+        ScopedRegX64 tb{regs, SizeX64::xmmword};
+        build.vpxor(ta.reg, regOp(OP_A(inst)), build.u32x4(0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpxor(tb.reg, regOp(OP_B(inst)), build.u32x4(0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpcmpgtd(inst.regX64, tb.reg, ta.reg);
+        break;
+    }
+    case IrCmd::SELECT_SIMD:
+    {
+        // bitwise blend (B & mask) | (C & ~mask); mask is OP_A. Matches the interpreter and ARM bit/bif.
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_B(inst), OP_C(inst)});
+        ScopedRegX64 tmp{regs, SizeX64::xmmword};
+        build.vpand(tmp.reg, regOp(OP_B(inst)), regOp(OP_A(inst)));
+        build.vpandn(inst.regX64, regOp(OP_A(inst)), regOp(OP_C(inst)));
+        build.vpor(inst.regX64, inst.regX64, tmp.reg);
+        break;
+    }
+    case IrCmd::SPLAT_SIMD:
+    {
+        // A is a double: truncate to u32, drop it into lane 0, then broadcast lane 0 to all four
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {});
+        ScopedRegX64 gpr{regs, SizeX64::dword};
+        ScopedRegX64 tmp{regs, SizeX64::xmmword};
+        build.vcvttsd2si(qwordReg(gpr.reg), memRegDoubleOp(OP_A(inst)));
+        build.vpinsrd(tmp.reg, tmp.reg, gpr.reg, 0);
+        build.vpshufd(inst.regX64, tmp.reg, 0);
+        break;
+    }
+    case IrCmd::FSPLAT_SIMD:
+    {
+        // A is a double: convert to f32 into lane 0, then broadcast
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {});
+        ScopedRegX64 tmp{regs, SizeX64::xmmword};
+        build.vcvtsd2ss(tmp.reg, tmp.reg, memRegDoubleOp(OP_A(inst)));
+        build.vpshufd(inst.regX64, tmp.reg, 0);
+        break;
+    }
     case IrCmd::FMA_SIMD:
     {
         if ((build.features & Feature_FMA3) != 0)
@@ -3761,6 +3829,69 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
         build.vmaxps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
         break;
+    case IrCmd::EQ_FSIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vcmpeqps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::LT_FSIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vcmpltps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::GT_FSIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vcmpgtps(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::EQ_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpcmpeqd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::GT_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        ScopedRegX64 ta{regs, SizeX64::ymmword};
+        ScopedRegX64 tb{regs, SizeX64::ymmword};
+        build.vpxor(ta.reg, regOp(OP_A(inst)), build.u32x8(0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpxor(tb.reg, regOp(OP_B(inst)), build.u32x8(0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpcmpgtd(inst.regX64, ta.reg, tb.reg);
+        break;
+    }
+    case IrCmd::LT_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        ScopedRegX64 ta{regs, SizeX64::ymmword};
+        ScopedRegX64 tb{regs, SizeX64::ymmword};
+        build.vpxor(ta.reg, regOp(OP_A(inst)), build.u32x8(0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpxor(tb.reg, regOp(OP_B(inst)), build.u32x8(0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000));
+        build.vpcmpgtd(inst.regX64, tb.reg, ta.reg);
+        break;
+    }
+    case IrCmd::SELECT_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_B(inst), OP_C(inst)});
+        ScopedRegX64 tmp{regs, SizeX64::ymmword};
+        build.vpand(tmp.reg, regOp(OP_B(inst)), regOp(OP_A(inst)));
+        build.vpandn(inst.regX64, regOp(OP_A(inst)), regOp(OP_C(inst)));
+        build.vpor(inst.regX64, inst.regX64, tmp.reg);
+        break;
+    }
+    case IrCmd::SPLAT_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {});
+        ScopedRegX64 gpr{regs, SizeX64::dword};
+        ScopedRegX64 tmp{regs, SizeX64::xmmword};
+        build.vcvttsd2si(qwordReg(gpr.reg), memRegDoubleOp(OP_A(inst)));
+        build.vpinsrd(tmp.reg, tmp.reg, gpr.reg, 0);
+        build.vpbroadcastd(inst.regX64, tmp.reg);
+        break;
+    }
+    case IrCmd::FSPLAT_SIMD256:
+    {
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {});
+        ScopedRegX64 tmp{regs, SizeX64::xmmword};
+        build.vcvtsd2ss(tmp.reg, tmp.reg, memRegDoubleOp(OP_A(inst)));
+        build.vpbroadcastd(inst.regX64, tmp.reg);
+        break;
+    }
     case IrCmd::FSQRT_SIMD256:
         inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
         build.vsqrtps(inst.regX64, regOp(OP_A(inst)));

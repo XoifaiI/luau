@@ -187,6 +187,8 @@ public:
     void vcmpltss(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vcmpeqps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vcmpnltps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vcmpltps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vcmpgtps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
 
     void vblendvps(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, RegisterX64 mask);
     void vblendvpd(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, RegisterX64 mask);
@@ -204,6 +206,8 @@ public:
     void vpor(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vpxor(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vpcmpeqd(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpcmpgtd(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vpbroadcastd(OperandX64 dst, OperandX64 src);
 
     // Packed 32-bit shifts by an immediate count (encoded with a /digit opcode extension)
     void vpslld(RegisterX64 dst, RegisterX64 src, uint8_t shift);

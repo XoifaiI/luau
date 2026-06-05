@@ -1113,6 +1113,27 @@ enum class IrCmd : uint16_t
     // A: TValue (simd lane data), B: int (selector 0-255)
     SHUFFLE_SIMD,
 
+    // Lanewise float compares producing an all-ones / all-zero mask per lane (ordered, false for NaN)
+    // A, B: TValue (simd lane data)
+    EQ_FSIMD,
+    LT_FSIMD,
+    GT_FSIMD,
+
+    // Lanewise unsigned integer compares producing an all-ones / all-zero mask per lane
+    // A, B: TValue (simd lane data)
+    EQ_SIMD,
+    LT_SIMD,
+    GT_SIMD,
+
+    // Lanewise bitwise blend: (B & A) | (C & ~A), i.e. mask ? a : b
+    // A: mask, B, C: TValue (simd lane data)
+    SELECT_SIMD,
+
+    // Broadcast a scalar to every lane. SPLAT takes an int (A: a u32 in a gpr); FSPLAT takes a double (A) and
+    // converts it to f32 before broadcasting.
+    SPLAT_SIMD,
+    FSPLAT_SIMD,
+
     // 256-bit (8-wide u32, AVX2 ymm) counterparts of the integer SIMD value ops. Same operand shapes as the
     // 128-bit forms; they produce/consume IrValueKind::Simd256 and lower to VEX.256 instructions.
     // SHUFFLE_SIMD256 applies the vpshufd selector within each 128-bit lane (per-block for a 2-block layout).
@@ -1141,6 +1162,15 @@ enum class IrCmd : uint16_t
     FMA_SIMD256,
     TOFLOAT_SIMD256,
     TOINT_SIMD256,
+    EQ_FSIMD256,
+    LT_FSIMD256,
+    GT_FSIMD256,
+    EQ_SIMD256,
+    LT_SIMD256,
+    GT_SIMD256,
+    SELECT_SIMD256,
+    SPLAT_SIMD256,
+    FSPLAT_SIMD256,
 
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer

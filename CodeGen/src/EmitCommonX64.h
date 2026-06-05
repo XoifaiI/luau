@@ -49,7 +49,7 @@ static_assert(kExtraSpillSlots * 8 <= LUA_EXECUTION_CALLBACK_STORAGE, "can't use
 
 inline constexpr uint8_t kWindowsFirstNonVolXmmReg = 6;
 
-inline constexpr uint8_t kWindowsUsableXmmRegs = 10; // Some xmm regs are non-volatile, we have to balance how many we want to use/preserve
+inline constexpr uint8_t kWindowsUsableXmmRegs = 16; // Use the full xmm file; non-vol xmm6-15 are saved/restored once at the native entry gate
 inline constexpr uint8_t kSystemVUsableXmmRegs = 16; // All xmm regs are volatile
 
 inline uint8_t getXmmRegisterCount(ABIX64 abi)

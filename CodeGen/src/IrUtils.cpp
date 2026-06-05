@@ -438,6 +438,15 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::TOFLOAT_SIMD:
     case IrCmd::TOINT_SIMD:
     case IrCmd::SHUFFLE_SIMD:
+    case IrCmd::EQ_FSIMD:
+    case IrCmd::LT_FSIMD:
+    case IrCmd::GT_FSIMD:
+    case IrCmd::EQ_SIMD:
+    case IrCmd::LT_SIMD:
+    case IrCmd::GT_SIMD:
+    case IrCmd::SELECT_SIMD:
+    case IrCmd::SPLAT_SIMD:
+    case IrCmd::FSPLAT_SIMD:
         return IrValueKind::Simd;
     case IrCmd::BUFFER_READSIMD256:
     case IrCmd::LOAD_SIMD256:
@@ -462,6 +471,15 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::FMA_SIMD256:
     case IrCmd::TOFLOAT_SIMD256:
     case IrCmd::TOINT_SIMD256:
+    case IrCmd::EQ_FSIMD256:
+    case IrCmd::LT_FSIMD256:
+    case IrCmd::GT_FSIMD256:
+    case IrCmd::EQ_SIMD256:
+    case IrCmd::LT_SIMD256:
+    case IrCmd::GT_SIMD256:
+    case IrCmd::SELECT_SIMD256:
+    case IrCmd::SPLAT_SIMD256:
+    case IrCmd::FSPLAT_SIMD256:
         return IrValueKind::Simd256;
     case IrCmd::BUFFER_WRITESIMD:
     case IrCmd::STORE_SIMD:

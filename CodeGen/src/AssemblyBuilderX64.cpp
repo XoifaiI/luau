@@ -1043,6 +1043,18 @@ void AssemblyBuilderX64::vcmpnltps(OperandX64 dst, OperandX64 src1, OperandX64 s
     placeAvx("vcmpnltps", dst, src1, src2, 0x05, 0xc2, false, AVX_0F, AVX_NP);
 }
 
+void AssemblyBuilderX64::vcmpltps(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    // predicate 0x11 (LT_OQ): src1 < src2, ordered (false for NaN), non-signaling
+    placeAvx("vcmpltps", dst, src1, src2, 0x11, 0xc2, false, AVX_0F, AVX_NP);
+}
+
+void AssemblyBuilderX64::vcmpgtps(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    // predicate 0x1e (GT_OQ): src1 > src2, ordered (false for NaN), non-signaling
+    placeAvx("vcmpgtps", dst, src1, src2, 0x1e, 0xc2, false, AVX_0F, AVX_NP);
+}
+
 void AssemblyBuilderX64::vblendvps(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, RegisterX64 mask)
 {
     // bits [7:4] of imm8 are used to select register for operand 4
@@ -1117,6 +1129,18 @@ void AssemblyBuilderX64::vpxor(OperandX64 dst, OperandX64 src1, OperandX64 src2)
 void AssemblyBuilderX64::vpcmpeqd(OperandX64 dst, OperandX64 src1, OperandX64 src2)
 {
     placeAvx("vpcmpeqd", dst, src1, src2, 0x76, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpcmpgtd(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    // signed 32-bit lane compare: 0xffffffff where src1 > src2 (signed), else 0
+    placeAvx("vpcmpgtd", dst, src1, src2, 0x66, false, AVX_0F, AVX_66);
+}
+
+void AssemblyBuilderX64::vpbroadcastd(OperandX64 dst, OperandX64 src)
+{
+    // broadcast the low 32-bit element of src to every lane of dst (AVX2)
+    placeAvx("vpbroadcastd", dst, src, 0x58, false, AVX_0F38, AVX_66);
 }
 
 void AssemblyBuilderX64::vpslld(RegisterX64 dst, RegisterX64 src, uint8_t shift)

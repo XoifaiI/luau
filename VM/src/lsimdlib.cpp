@@ -591,11 +591,222 @@ static int simd256_funpack(lua_State* L)
     return 8;
 }
 
+// Float lane compares produce an all-ones / all-zero mask per lane (ordered: false for any NaN operand),
+// matching the native vcmpps / fcm result. The masks feed select() or band/bor/bnot.
+#define SIMD_FCMP(name, cmp) \
+    static int simd_##name(lua_State* L) \
+    { \
+        const uint32_t* a = luaL_checksimd(L, 1); \
+        const uint32_t* b = luaL_checksimd(L, 2); \
+        uint32_t* r = lua_newsimd(L); \
+        for (int i = 0; i < 4; i++) \
+        { \
+            float x, y; \
+            memcpy(&x, &a[i], sizeof(float)); \
+            memcpy(&y, &b[i], sizeof(float)); \
+            r[i] = (cmp) ? 0xFFFFFFFFu : 0u; \
+        } \
+        return 1; \
+    }
+
+SIMD_FCMP(feq, x == y)
+SIMD_FCMP(flt, x < y)
+SIMD_FCMP(fgt, x > y)
+
+#undef SIMD_FCMP
+
+#define SIMD256_FCMP(name, cmp) \
+    static int simd256_##name(lua_State* L) \
+    { \
+        const uint32_t* a = luaL_checksimd(L, 1); \
+        const uint32_t* b = luaL_checksimd(L, 2); \
+        uint32_t* r = lua_newsimd(L); \
+        for (int i = 0; i < 8; i++) \
+        { \
+            float x, y; \
+            memcpy(&x, &a[i], sizeof(float)); \
+            memcpy(&y, &b[i], sizeof(float)); \
+            r[i] = (cmp) ? 0xFFFFFFFFu : 0u; \
+        } \
+        return 1; \
+    }
+
+SIMD256_FCMP(feq, x == y)
+SIMD256_FCMP(flt, x < y)
+SIMD256_FCMP(fgt, x > y)
+
+#undef SIMD256_FCMP
+
+// Bitwise blend: per bit, take a where the mask bit is set, b where it is clear. With a full-lane mask (from a
+// compare) this is a lanewise select(mask, a, b) = mask ? a : b. Element-agnostic, so it works for int or float lanes.
+static int simd_select(lua_State* L)
+{
+    const uint32_t* m = luaL_checksimd(L, 1);
+    const uint32_t* a = luaL_checksimd(L, 2);
+    const uint32_t* b = luaL_checksimd(L, 3);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 4; i++)
+        r[i] = (a[i] & m[i]) | (b[i] & ~m[i]);
+    return 1;
+}
+
+static int simd256_select(lua_State* L)
+{
+    const uint32_t* m = luaL_checksimd(L, 1);
+    const uint32_t* a = luaL_checksimd(L, 2);
+    const uint32_t* b = luaL_checksimd(L, 3);
+    uint32_t* r = lua_newsimd(L);
+    for (int i = 0; i < 8; i++)
+        r[i] = (a[i] & m[i]) | (b[i] & ~m[i]);
+    return 1;
+}
+
+// Integer lane compares producing an all-ones / all-zero mask. Ordering is UNSIGNED (uint32_t < / > in C),
+// matching the native cmhi / sign-bias path; equality is sign-agnostic.
+#define SIMD_ICMP(name, cmp) \
+    static int simd_##name(lua_State* L) \
+    { \
+        const uint32_t* a = luaL_checksimd(L, 1); \
+        const uint32_t* b = luaL_checksimd(L, 2); \
+        uint32_t* r = lua_newsimd(L); \
+        for (int i = 0; i < 4; i++) \
+            r[i] = (a[i] cmp b[i]) ? 0xFFFFFFFFu : 0u; \
+        return 1; \
+    }
+
+SIMD_ICMP(ieq, ==)
+SIMD_ICMP(ilt, <)
+SIMD_ICMP(igt, >)
+
+#undef SIMD_ICMP
+
+#define SIMD256_ICMP(name, cmp) \
+    static int simd256_##name(lua_State* L) \
+    { \
+        const uint32_t* a = luaL_checksimd(L, 1); \
+        const uint32_t* b = luaL_checksimd(L, 2); \
+        uint32_t* r = lua_newsimd(L); \
+        for (int i = 0; i < 8; i++) \
+            r[i] = (a[i] cmp b[i]) ? 0xFFFFFFFFu : 0u; \
+        return 1; \
+    }
+
+SIMD256_ICMP(ieq, ==)
+SIMD256_ICMP(ilt, <)
+SIMD256_ICMP(igt, >)
+
+#undef SIMD256_ICMP
+
+// Horizontal reductions: collapse every lane to a single scalar number. This is normally the END of a SIMD
+// pipeline (accumulate lanewise across the data in registers, then reduce once), so a boxing lib call here is
+// cheap relative to the work it summarizes. Integer min/max are UNSIGNED; bitwise reductions pair with the compare
+// masks (e.g. hbor(eq(a,b)) != 0 = "any lane equal"). Float reductions accumulate left-to-right in single precision.
+#define SIMD_IREDUCE(name, init, op) \
+    static int simd_##name(lua_State* L) \
+    { \
+        const uint32_t* v = luaL_checksimd(L, 1); \
+        uint32_t a = (init); \
+        for (int i = 0; i < 4; i++) \
+        { \
+            uint32_t x = v[i]; \
+            a = (op); \
+        } \
+        lua_pushunsigned(L, a); \
+        return 1; \
+    }
+
+#define SIMD256_IREDUCE(name, init, op) \
+    static int simd256_##name(lua_State* L) \
+    { \
+        const uint32_t* v = luaL_checksimd(L, 1); \
+        uint32_t a = (init); \
+        for (int i = 0; i < 8; i++) \
+        { \
+            uint32_t x = v[i]; \
+            a = (op); \
+        } \
+        lua_pushunsigned(L, a); \
+        return 1; \
+    }
+
+SIMD_IREDUCE(sum, 0u, a + x)
+SIMD_IREDUCE(hmin, 0xFFFFFFFFu, x < a ? x : a)
+SIMD_IREDUCE(hmax, 0u, x > a ? x : a)
+SIMD_IREDUCE(hband, 0xFFFFFFFFu, a & x)
+SIMD_IREDUCE(hbor, 0u, a | x)
+SIMD_IREDUCE(hbxor, 0u, a ^ x)
+SIMD256_IREDUCE(sum, 0u, a + x)
+SIMD256_IREDUCE(hmin, 0xFFFFFFFFu, x < a ? x : a)
+SIMD256_IREDUCE(hmax, 0u, x > a ? x : a)
+SIMD256_IREDUCE(hband, 0xFFFFFFFFu, a & x)
+SIMD256_IREDUCE(hbor, 0u, a | x)
+SIMD256_IREDUCE(hbxor, 0u, a ^ x)
+
+#undef SIMD_IREDUCE
+#undef SIMD256_IREDUCE
+
+#define SIMD_FREDUCE(name, init, op) \
+    static int simd_##name(lua_State* L) \
+    { \
+        const uint32_t* v = luaL_checksimd(L, 1); \
+        float a = (init); \
+        for (int i = 0; i < 4; i++) \
+        { \
+            float x; \
+            memcpy(&x, &v[i], sizeof(float)); \
+            a = (op); \
+        } \
+        lua_pushnumber(L, a); \
+        return 1; \
+    }
+
+#define SIMD256_FREDUCE(name, init, op) \
+    static int simd256_##name(lua_State* L) \
+    { \
+        const uint32_t* v = luaL_checksimd(L, 1); \
+        float a = (init); \
+        for (int i = 0; i < 8; i++) \
+        { \
+            float x; \
+            memcpy(&x, &v[i], sizeof(float)); \
+            a = (op); \
+        } \
+        lua_pushnumber(L, a); \
+        return 1; \
+    }
+
+SIMD_FREDUCE(fsum, 0.0f, a + x)
+SIMD_FREDUCE(fhmin, INFINITY, x < a ? x : a)
+SIMD_FREDUCE(fhmax, -INFINITY, x > a ? x : a)
+SIMD256_FREDUCE(fsum, 0.0f, a + x)
+SIMD256_FREDUCE(fhmin, INFINITY, x < a ? x : a)
+SIMD256_FREDUCE(fhmax, -INFINITY, x > a ? x : a)
+
+#undef SIMD_FREDUCE
+#undef SIMD256_FREDUCE
+
 static const luaL_Reg simd256lib[] = {
     {"create", simd256_create},
     {"splat", simd256_splat},
+    {"fsplat", simd256_fsplat},
     {"extract", simd256_extract},
     {"unpack", simd256_unpack},
+    {"feq", simd256_feq},
+    {"flt", simd256_flt},
+    {"fgt", simd256_fgt},
+    {"select", simd256_select},
+    {"eq", simd256_ieq},
+    {"lt", simd256_ilt},
+    {"gt", simd256_igt},
+    {"sum", simd256_sum},
+    {"hmin", simd256_hmin},
+    {"hmax", simd256_hmax},
+    {"hband", simd256_hband},
+    {"hbor", simd256_hbor},
+    {"hbxor", simd256_hbxor},
+    {"fsum", simd256_fsum},
+    {"fhmin", simd256_fhmin},
+    {"fhmax", simd256_fhmax},
     {"add", simd256_add},
     {"sub", simd256_sub},
     {"mul", simd256_mul},
@@ -623,6 +834,7 @@ static const luaL_Reg simd256lib[] = {
 static const luaL_Reg simdlib[] = {
     {"create", simd_create},
     {"splat", simd_splat},
+    {"fsplat", simd_fsplat},
     {"extract", simd_extract},
     {"unpack", simd_unpack},
     {"add", simd_add},
@@ -649,6 +861,22 @@ static const luaL_Reg simdlib[] = {
     {"fcreate", simd_fcreate},
     {"fextract", simd_fextract},
     {"funpack", simd_funpack},
+    {"feq", simd_feq},
+    {"flt", simd_flt},
+    {"fgt", simd_fgt},
+    {"select", simd_select},
+    {"eq", simd_ieq},
+    {"lt", simd_ilt},
+    {"gt", simd_igt},
+    {"sum", simd_sum},
+    {"hmin", simd_hmin},
+    {"hmax", simd_hmax},
+    {"hband", simd_hband},
+    {"hbor", simd_hbor},
+    {"hbxor", simd_hbxor},
+    {"fsum", simd_fsum},
+    {"fhmin", simd_fhmin},
+    {"fhmax", simd_fhmax},
     {NULL, NULL},
 };
 
@@ -660,6 +888,16 @@ static const luaL_Reg u32x4lib[] = {
     {"splat", simd_splat},
     {"extract", simd_extract},
     {"unpack", simd_unpack},
+    {"select", simd_select},
+    {"eq", simd_ieq},
+    {"lt", simd_ilt},
+    {"gt", simd_igt},
+    {"sum", simd_sum},
+    {"hmin", simd_hmin},
+    {"hmax", simd_hmax},
+    {"hband", simd_hband},
+    {"hbor", simd_hbor},
+    {"hbxor", simd_hbxor},
     {"add", simd_add},
     {"sub", simd_sub},
     {"mul", simd_mul},
@@ -680,6 +918,13 @@ static const luaL_Reg f32x4lib[] = {
     {"splat", simd_fsplat},
     {"extract", simd_fextract},
     {"unpack", simd_funpack},
+    {"eq", simd_feq},
+    {"lt", simd_flt},
+    {"gt", simd_fgt},
+    {"sum", simd_fsum},
+    {"hmin", simd_fhmin},
+    {"hmax", simd_fhmax},
+    {"select", simd_select},
     {"add", simd_fadd},
     {"sub", simd_fsub},
     {"mul", simd_fmul},
@@ -697,6 +942,16 @@ static const luaL_Reg u32x8lib[] = {
     {"splat", simd256_splat},
     {"extract", simd256_extract},
     {"unpack", simd256_unpack},
+    {"select", simd256_select},
+    {"eq", simd256_ieq},
+    {"lt", simd256_ilt},
+    {"gt", simd256_igt},
+    {"sum", simd256_sum},
+    {"hmin", simd256_hmin},
+    {"hmax", simd256_hmax},
+    {"hband", simd256_hband},
+    {"hbor", simd256_hbor},
+    {"hbxor", simd256_hbxor},
     {"add", simd256_add},
     {"sub", simd256_sub},
     {"mul", simd256_mul},
@@ -717,6 +972,13 @@ static const luaL_Reg f32x8lib[] = {
     {"splat", simd256_fsplat},
     {"extract", simd256_fextract},
     {"unpack", simd256_funpack},
+    {"eq", simd256_feq},
+    {"lt", simd256_flt},
+    {"gt", simd256_fgt},
+    {"sum", simd256_fsum},
+    {"hmin", simd256_fhmin},
+    {"hmax", simd256_fhmax},
+    {"select", simd256_select},
     {"add", simd256_fadd},
     {"sub", simd256_fsub},
     {"mul", simd256_fmul},

@@ -273,6 +273,8 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
     // element type so the float ops drop the 'f' prefix (f32x4.add -> LBF_SIMD_FADD).
     if (builtin.object == "u32x4")
     {
+        if (builtin.method == "splat")
+            return LBF_SIMD_SPLAT;
         if (builtin.method == "add")
             return LBF_SIMD_ADD;
         if (builtin.method == "sub")
@@ -297,10 +299,20 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_SHUFFLE;
         if (builtin.method == "tofloat")
             return LBF_SIMD_TOFLOAT;
+        if (builtin.method == "select")
+            return LBF_SIMD_SELECT;
+        if (builtin.method == "eq")
+            return LBF_SIMD_EQ;
+        if (builtin.method == "lt")
+            return LBF_SIMD_LT;
+        if (builtin.method == "gt")
+            return LBF_SIMD_GT;
     }
 
     if (builtin.object == "f32x4")
     {
+        if (builtin.method == "splat")
+            return LBF_SIMD_FSPLAT;
         if (builtin.method == "add")
             return LBF_SIMD_FADD;
         if (builtin.method == "sub")
@@ -319,10 +331,20 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_FMA;
         if (builtin.method == "toint")
             return LBF_SIMD_TOINT;
+        if (builtin.method == "eq")
+            return LBF_SIMD_FEQ;
+        if (builtin.method == "lt")
+            return LBF_SIMD_FLT;
+        if (builtin.method == "gt")
+            return LBF_SIMD_FGT;
+        if (builtin.method == "select")
+            return LBF_SIMD_SELECT;
     }
 
     if (builtin.object == "u32x8")
     {
+        if (builtin.method == "splat")
+            return LBF_SIMD256_SPLAT;
         if (builtin.method == "add")
             return LBF_SIMD256_ADD;
         if (builtin.method == "sub")
@@ -347,10 +369,20 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_SHUFFLE;
         if (builtin.method == "tofloat")
             return LBF_SIMD256_TOFLOAT;
+        if (builtin.method == "select")
+            return LBF_SIMD256_SELECT;
+        if (builtin.method == "eq")
+            return LBF_SIMD256_EQ;
+        if (builtin.method == "lt")
+            return LBF_SIMD256_LT;
+        if (builtin.method == "gt")
+            return LBF_SIMD256_GT;
     }
 
     if (builtin.object == "f32x8")
     {
+        if (builtin.method == "splat")
+            return LBF_SIMD256_FSPLAT;
         if (builtin.method == "add")
             return LBF_SIMD256_FADD;
         if (builtin.method == "sub")
@@ -369,10 +401,22 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_FMA;
         if (builtin.method == "toint")
             return LBF_SIMD256_TOINT;
+        if (builtin.method == "eq")
+            return LBF_SIMD256_FEQ;
+        if (builtin.method == "lt")
+            return LBF_SIMD256_FLT;
+        if (builtin.method == "gt")
+            return LBF_SIMD256_FGT;
+        if (builtin.method == "select")
+            return LBF_SIMD256_SELECT;
     }
 
     if (builtin.object == "simd256")
     {
+        if (builtin.method == "splat")
+            return LBF_SIMD256_SPLAT;
+        if (builtin.method == "fsplat")
+            return LBF_SIMD256_FSPLAT;
         if (builtin.method == "add")
             return LBF_SIMD256_ADD;
         if (builtin.method == "sub")
@@ -415,10 +459,28 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_TOFLOAT;
         if (builtin.method == "toint")
             return LBF_SIMD256_TOINT;
+        if (builtin.method == "feq")
+            return LBF_SIMD256_FEQ;
+        if (builtin.method == "flt")
+            return LBF_SIMD256_FLT;
+        if (builtin.method == "fgt")
+            return LBF_SIMD256_FGT;
+        if (builtin.method == "select")
+            return LBF_SIMD256_SELECT;
+        if (builtin.method == "eq")
+            return LBF_SIMD256_EQ;
+        if (builtin.method == "lt")
+            return LBF_SIMD256_LT;
+        if (builtin.method == "gt")
+            return LBF_SIMD256_GT;
     }
 
     if (builtin.object == "simd")
     {
+        if (builtin.method == "splat")
+            return LBF_SIMD_SPLAT;
+        if (builtin.method == "fsplat")
+            return LBF_SIMD_FSPLAT;
         if (builtin.method == "add")
             return LBF_SIMD_ADD;
         if (builtin.method == "sub")
@@ -461,6 +523,20 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_TOINT;
         if (builtin.method == "shuffle")
             return LBF_SIMD_SHUFFLE;
+        if (builtin.method == "feq")
+            return LBF_SIMD_FEQ;
+        if (builtin.method == "flt")
+            return LBF_SIMD_FLT;
+        if (builtin.method == "fgt")
+            return LBF_SIMD_FGT;
+        if (builtin.method == "select")
+            return LBF_SIMD_SELECT;
+        if (builtin.method == "eq")
+            return LBF_SIMD_EQ;
+        if (builtin.method == "lt")
+            return LBF_SIMD_LT;
+        if (builtin.method == "gt")
+            return LBF_SIMD_GT;
     }
 
     if (builtin.object == "vector")
@@ -878,15 +954,24 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD_FDIV:
     case LBF_SIMD_FMIN:
     case LBF_SIMD_FMAX:
+    case LBF_SIMD_FEQ:
+    case LBF_SIMD_FLT:
+    case LBF_SIMD_FGT:
+    case LBF_SIMD_EQ:
+    case LBF_SIMD_LT:
+    case LBF_SIMD_GT:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_BNOT:
     case LBF_SIMD_FSQRT:
     case LBF_SIMD_TOFLOAT:
     case LBF_SIMD_TOINT:
+    case LBF_SIMD_SPLAT:
+    case LBF_SIMD_FSPLAT:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_SHUFFLE:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_FMA:
+    case LBF_SIMD_SELECT:
         return {3, 1, BuiltinInfo::Flag_NoneSafe};
 
     case LBF_BUFFER_READSIMD256:
@@ -909,13 +994,22 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD256_FDIV:
     case LBF_SIMD256_FMIN:
     case LBF_SIMD256_FMAX:
+    case LBF_SIMD256_FEQ:
+    case LBF_SIMD256_FLT:
+    case LBF_SIMD256_FGT:
+    case LBF_SIMD256_EQ:
+    case LBF_SIMD256_LT:
+    case LBF_SIMD256_GT:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD256_BNOT:
     case LBF_SIMD256_FSQRT:
     case LBF_SIMD256_TOFLOAT:
     case LBF_SIMD256_TOINT:
+    case LBF_SIMD256_SPLAT:
+    case LBF_SIMD256_FSPLAT:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD256_FMA:
+    case LBF_SIMD256_SELECT:
         return {3, 1, BuiltinInfo::Flag_NoneSafe};
 
     case LBF_VECTOR_MAGNITUDE:

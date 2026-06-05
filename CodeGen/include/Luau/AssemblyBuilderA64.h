@@ -174,11 +174,14 @@ public:
     // Vector component manipulation
     void ins_4s(RegisterA64 dst, RegisterA64 src, uint8_t index);
     void ins_4s(RegisterA64 dst, uint8_t dstIndex, RegisterA64 src, uint8_t srcIndex);
+    void dup_4s(RegisterA64 dst, RegisterA64 src);
     void dup_4s(RegisterA64 dst, RegisterA64 src, uint8_t index);
     void umov_4s(RegisterA64 dst, RegisterA64 src, uint8_t index);
 
     void fcmeq_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
     void fcmgt_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void cmeq_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void cmhi_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
     void bit(RegisterA64 dst, RegisterA64 src, RegisterA64 mask);
     void bif(RegisterA64 dst, RegisterA64 src, RegisterA64 mask);
 

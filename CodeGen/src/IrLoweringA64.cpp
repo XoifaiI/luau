@@ -4037,6 +4037,69 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         build.tbl_16b(inst.regA64, regOp(OP_A(inst)), idxReg);
         break;
     }
+    case IrCmd::EQ_FSIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fcmeq_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::LT_FSIMD:
+        // a < b is b > a
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fcmgt_4s(inst.regA64, regOp(OP_B(inst)), regOp(OP_A(inst)));
+        break;
+    case IrCmd::GT_FSIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.fcmgt_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::EQ_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.cmeq_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::GT_SIMD:
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.cmhi_4s(inst.regA64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
+    case IrCmd::LT_SIMD:
+        // unsigned a < b == b > a
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_A(inst), OP_B(inst)});
+        build.cmhi_4s(inst.regA64, regOp(OP_B(inst)), regOp(OP_A(inst)));
+        break;
+    case IrCmd::SELECT_SIMD:
+    {
+        // mask ? a : b via bitwise insert; mask = OP_A, a = OP_B, b = OP_C
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {OP_B(inst), OP_C(inst)});
+        RegisterA64 a = regOp(OP_B(inst));
+        RegisterA64 b = regOp(OP_C(inst));
+        RegisterA64 mask = regOp(OP_A(inst));
+        if (inst.regA64 == a)
+        {
+            build.bif(inst.regA64, b, mask);
+        }
+        else
+        {
+            if (inst.regA64 != b)
+                build.mov(inst.regA64, b);
+            build.bit(inst.regA64, a, mask);
+        }
+        break;
+    }
+    case IrCmd::SPLAT_SIMD:
+    {
+        // A is a double: truncate to u32 in a temp w register, then broadcast to all four lanes
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {});
+        RegisterA64 temp = regs.allocTemp(KindA64::w);
+        build.fcvtzs(castReg(KindA64::x, temp), tempDouble(OP_A(inst)));
+        build.dup_4s(inst.regA64, temp);
+        break;
+    }
+    case IrCmd::FSPLAT_SIMD:
+    {
+        // A is a double: narrow to f32 in a temp lane, then broadcast that lane
+        inst.regA64 = regs.allocReuse(KindA64::q, index, {});
+        RegisterA64 temp = regs.allocTemp(KindA64::q);
+        build.fcvt(castReg(KindA64::s, temp), tempDouble(OP_A(inst)));
+        build.dup_4s(inst.regA64, temp, 0);
+        break;
+    }
 
     // 8-wide (AVX2 ymm on x64) SIMD value ops, emulated on A64 as a PAIR of 128-bit NEON q registers (regA64 = low
     // 4 lanes, regA64Hi = high 4 lanes). NEON has no 256-bit register, so every op is two of the 128-bit forms.
@@ -4124,6 +4187,12 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     case IrCmd::FSUB_SIMD256:
     case IrCmd::FMUL_SIMD256:
     case IrCmd::FDIV_SIMD256:
+    case IrCmd::EQ_FSIMD256:
+    case IrCmd::LT_FSIMD256:
+    case IrCmd::GT_FSIMD256:
+    case IrCmd::EQ_SIMD256:
+    case IrCmd::LT_SIMD256:
+    case IrCmd::GT_SIMD256:
     {
         RegisterA64 hi;
         inst.regA64 = regs.allocReg256(index, hi);
@@ -4143,6 +4212,12 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         case IrCmd::FSUB_SIMD256: build.fsub(inst.regA64, aLo, bLo); build.fsub(hi, aHi, bHi); break;
         case IrCmd::FMUL_SIMD256: build.fmul(inst.regA64, aLo, bLo); build.fmul(hi, aHi, bHi); break;
         case IrCmd::FDIV_SIMD256: build.fdiv(inst.regA64, aLo, bLo); build.fdiv(hi, aHi, bHi); break;
+        case IrCmd::EQ_FSIMD256: build.fcmeq_4s(inst.regA64, aLo, bLo); build.fcmeq_4s(hi, aHi, bHi); break;
+        case IrCmd::LT_FSIMD256: build.fcmgt_4s(inst.regA64, bLo, aLo); build.fcmgt_4s(hi, bHi, aHi); break;
+        case IrCmd::GT_FSIMD256: build.fcmgt_4s(inst.regA64, aLo, bLo); build.fcmgt_4s(hi, aHi, bHi); break;
+        case IrCmd::EQ_SIMD256: build.cmeq_4s(inst.regA64, aLo, bLo); build.cmeq_4s(hi, aHi, bHi); break;
+        case IrCmd::LT_SIMD256: build.cmhi_4s(inst.regA64, bLo, aLo); build.cmhi_4s(hi, bHi, aHi); break;
+        case IrCmd::GT_SIMD256: build.cmhi_4s(inst.regA64, aLo, bLo); build.cmhi_4s(hi, aHi, bHi); break;
         default: break;
         }
         break;
@@ -4294,6 +4369,43 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         build.fmla(inst.regA64, aLo, bLo);
         build.mov(hi, cHi);
         build.fmla(hi, aHi, bHi);
+        break;
+    }
+    case IrCmd::SELECT_SIMD256:
+    {
+        // mask ? a : b (bitwise) on each 128-bit half; mask = OP_A, a = OP_B, b = OP_C
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 maskLo = regOp(OP_A(inst)), maskHi = regOpHi(OP_A(inst));
+        RegisterA64 aLo = regOp(OP_B(inst)), aHi = regOpHi(OP_B(inst));
+        RegisterA64 bLo = regOp(OP_C(inst)), bHi = regOpHi(OP_C(inst));
+        build.mov(inst.regA64, bLo);
+        build.bit(inst.regA64, aLo, maskLo);
+        build.mov(hi, bHi);
+        build.bit(hi, aHi, maskHi);
+        break;
+    }
+    case IrCmd::SPLAT_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 temp = regs.allocTemp(KindA64::w);
+        build.fcvtzs(castReg(KindA64::x, temp), tempDouble(OP_A(inst)));
+        build.dup_4s(inst.regA64, temp);
+        build.dup_4s(hi, temp);
+        break;
+    }
+    case IrCmd::FSPLAT_SIMD256:
+    {
+        RegisterA64 hi;
+        inst.regA64 = regs.allocReg256(index, hi);
+        inst.regA64Hi = hi;
+        RegisterA64 temp = regs.allocTemp(KindA64::q);
+        build.fcvt(castReg(KindA64::s, temp), tempDouble(OP_A(inst)));
+        build.dup_4s(inst.regA64, temp, 0);
+        build.dup_4s(hi, temp, 0);
         break;
     }
 

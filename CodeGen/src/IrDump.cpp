@@ -583,6 +583,24 @@ const char* getCmdName(IrCmd cmd)
         return "TOINT_SIMD";
     case IrCmd::SHUFFLE_SIMD:
         return "SHUFFLE_SIMD";
+    case IrCmd::EQ_FSIMD:
+        return "EQ_FSIMD";
+    case IrCmd::LT_FSIMD:
+        return "LT_FSIMD";
+    case IrCmd::GT_FSIMD:
+        return "GT_FSIMD";
+    case IrCmd::EQ_SIMD:
+        return "EQ_SIMD";
+    case IrCmd::LT_SIMD:
+        return "LT_SIMD";
+    case IrCmd::GT_SIMD:
+        return "GT_SIMD";
+    case IrCmd::SELECT_SIMD:
+        return "SELECT_SIMD";
+    case IrCmd::SPLAT_SIMD:
+        return "SPLAT_SIMD";
+    case IrCmd::FSPLAT_SIMD:
+        return "FSPLAT_SIMD";
     case IrCmd::BUFFER_READSIMD256:
         return "BUFFER_READSIMD256";
     case IrCmd::BUFFER_WRITESIMD256:
@@ -633,6 +651,24 @@ const char* getCmdName(IrCmd cmd)
         return "TOFLOAT_SIMD256";
     case IrCmd::TOINT_SIMD256:
         return "TOINT_SIMD256";
+    case IrCmd::EQ_FSIMD256:
+        return "EQ_FSIMD256";
+    case IrCmd::LT_FSIMD256:
+        return "LT_FSIMD256";
+    case IrCmd::GT_FSIMD256:
+        return "GT_FSIMD256";
+    case IrCmd::EQ_SIMD256:
+        return "EQ_SIMD256";
+    case IrCmd::LT_SIMD256:
+        return "LT_SIMD256";
+    case IrCmd::GT_SIMD256:
+        return "GT_SIMD256";
+    case IrCmd::SELECT_SIMD256:
+        return "SELECT_SIMD256";
+    case IrCmd::SPLAT_SIMD256:
+        return "SPLAT_SIMD256";
+    case IrCmd::FSPLAT_SIMD256:
+        return "FSPLAT_SIMD256";
     case IrCmd::JUMP_CMP_PROTOID:
         return "JUMP_CMP_PROTOID";
     }
