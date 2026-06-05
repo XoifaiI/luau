@@ -50,6 +50,23 @@
 #endif
 #endif
 
+// buffer.fma additionally needs the FMA3 target so the fused _mm256_fmadd_ps / _mm_fmadd_ps path compiles; it is
+// runtime-gated by a separate FMA3 cpuid check (FMA3 is not implied by AVX2 in the ISA, only in practice). Defined
+// under the same conditions as LUAU_TARGET_AVX2, empty when fma is already in the baseline or on MSVC.
+#if defined(__x86_64__) || defined(_M_X64)
+#if defined(_MSC_VER) && !defined(__clang__)
+#define LUAU_TARGET_FMA
+#elif defined(__GNUC__) && defined(__has_attribute)
+#if __has_attribute(target)
+#if defined(__AVX2__) && defined(__FMA__)
+#define LUAU_TARGET_FMA
+#else
+#define LUAU_TARGET_FMA __attribute__((target("avx2,fma")))
+#endif
+#endif
+#endif
+#endif
+
 // Used on functions that have a printf-like interface to validate them statically
 #if defined(__GNUC__)
 #define LUA_PRINTF_ATTR(fmt, arg) __attribute__((format(printf, fmt, arg)))

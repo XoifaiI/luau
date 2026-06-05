@@ -10,6 +10,7 @@
 
 LUAU_FASTFLAG(LuauIntegerLibrary)
 
+#include <math.h>
 #include <string.h>
 
 #ifdef LUAU_TARGET_AVX2
@@ -298,6 +299,11 @@ static int buffer_fill(lua_State* L)
 // The wide registers live only inside these kernels, the data stays in buffer memory. SSE2 is part of the
 // x86-64 baseline and AVX2 is detected at runtime, with a portable scalar fallback that also handles the
 // sub-register tail. Each operation is a small tag supplying the combine at every width.
+//
+// OVERLAP CONTRACT (applies to every in-place dst/src kernel below, including the integer, float and fma ops):
+// the destination and source ranges must either be identical or not overlap at all. A partial overlap is
+// unsupported and gives a result that depends on the chosen vector width (the kernels process front to back),
+// the same restriction memcpy has versus memmove. Identical ranges (dst == src, same offset) are always fine.
 #ifdef LUAU_TARGET_AVX2
 static bool buffer_hasavx2()
 {
@@ -320,6 +326,21 @@ static bool buffer_hasavx2()
     return (info7[1] & (1 << 5)) != 0;
 #else
     return __builtin_cpu_supports("avx2");
+#endif
+}
+
+// FMA3 (fused multiply-add) support, checked independently of AVX2 so buffer.fma only takes the fused vfmadd path
+// on hardware that has it. Callers also require buffer_hasavx2() before touching ymm state.
+static bool buffer_hasfma3()
+{
+#if defined(_MSC_VER)
+    int info1[4] = {};
+    __cpuid(info1, 1);
+
+    // FMA3 is reported in leaf 1, ECX bit 12
+    return (info1[2] & (1 << 12)) != 0;
+#else
+    return __builtin_cpu_supports("fma");
 #endif
 }
 #endif
@@ -946,8 +967,10 @@ static int buffer_sunop(lua_State* L)
     return 0;
 }
 
-// Lanewise f32 fused multiply-add in place: dst[i] = dst[i] * mul[i] + add[i], in ONE memory pass (mul-then-add
-// rounding). The motivating case is an audio mix / image composite out = out*gain + src without two separate passes.
+// Lanewise f32 fused multiply-add in place: dst[i] = dst[i] * mul[i] + add[i], in ONE memory pass with a single
+// fused rounding on every platform (matching the value-type f32x4.fma and the interpreter). fmaf is used so the
+// result is deterministic regardless of whether the toolchain would contract d * x + y on its own. The motivating
+// case is an audio mix / image composite out = out * gain + src without two separate passes.
 static void buffer_fma_scalar(char* dst, const char* m, const char* a, unsigned len)
 {
     for (unsigned i = 0; i + 4 <= len; i += 4)
@@ -956,13 +979,15 @@ static void buffer_fma_scalar(char* dst, const char* m, const char* a, unsigned 
         memcpy(&d, dst + i, 4);
         memcpy(&x, m + i, 4);
         memcpy(&y, a + i, 4);
-        d = d * x + y;
+        d = fmaf(d, x, y);
         memcpy(dst + i, &d, 4);
     }
 }
 
 #ifdef LUAU_TARGET_AVX2
-LUAU_TARGET_AVX2 static void buffer_fma_avx2(char* dst, const char* m, const char* a, unsigned len)
+// Fused (single-rounding) vfmadd path. Only reached when FMA3 is present (see buffer_fma_bytes), so _mm*_fmadd_ps
+// is safe; the LUAU_TARGET_FMA attribute lets it compile when fma is not in the baseline compiler settings.
+LUAU_TARGET_FMA static void buffer_fma_avx2(char* dst, const char* m, const char* a, unsigned len)
 {
     unsigned i = 0;
     for (; i + 32 <= len; i += 32)
@@ -970,20 +995,14 @@ LUAU_TARGET_AVX2 static void buffer_fma_avx2(char* dst, const char* m, const cha
         __m256 d = _mm256_loadu_ps((const float*)(dst + i));
         __m256 x = _mm256_loadu_ps((const float*)(m + i));
         __m256 y = _mm256_loadu_ps((const float*)(a + i));
-        _mm256_storeu_ps((float*)(dst + i), _mm256_add_ps(_mm256_mul_ps(d, x), y));
+        _mm256_storeu_ps((float*)(dst + i), _mm256_fmadd_ps(d, x, y));
     }
-    buffer_fma_scalar(dst + i, m + i, a + i, len - i);
-}
-
-static void buffer_fma_sse2(char* dst, const char* m, const char* a, unsigned len)
-{
-    unsigned i = 0;
     for (; i + 16 <= len; i += 16)
     {
         __m128 d = _mm_loadu_ps((const float*)(dst + i));
         __m128 x = _mm_loadu_ps((const float*)(m + i));
         __m128 y = _mm_loadu_ps((const float*)(a + i));
-        _mm_storeu_ps((float*)(dst + i), _mm_add_ps(_mm_mul_ps(d, x), y));
+        _mm_storeu_ps((float*)(dst + i), _mm_fmadd_ps(d, x, y));
     }
     buffer_fma_scalar(dst + i, m + i, a + i, len - i);
 }
@@ -992,11 +1011,13 @@ static void buffer_fma_sse2(char* dst, const char* m, const char* a, unsigned le
 static void buffer_fma_bytes(char* dst, const char* m, const char* a, unsigned len)
 {
 #ifdef LUAU_TARGET_AVX2
-    static const bool hasavx2 = buffer_hasavx2();
-    if (hasavx2)
+    // fma stays a single fused rounding on every device: the vectorized vfmadd path only when FMA3 is present,
+    // otherwise the scalar fmaf path. Both round once, matching f32x4.fma and the interpreter.
+    static const bool hasfma3 = buffer_hasavx2() && buffer_hasfma3();
+    if (hasfma3)
         buffer_fma_avx2(dst, m, a, len);
     else
-        buffer_fma_sse2(dst, m, a, len);
+        buffer_fma_scalar(dst, m, a, len);
 #else
     buffer_fma_scalar(dst, m, a, len);
 #endif
