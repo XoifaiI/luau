@@ -4363,6 +4363,18 @@ bool IrLoweringX64::hasError() const
         }
     }
 
+    // Without FMA3 the only native lowering for fma is a separate multiply and add (two roundings). The interpreter
+    // uses fused fmaf, as does ARM (fmla) and FMA3 hardware (vfmadd), so bail fma-using functions to the interpreter
+    // here to keep the result bit-identical across the whole fleet rather than diverging by an ulp on pre-FMA3 x64.
+    if ((build.features & Feature_FMA3) == 0)
+    {
+        for (const IrInst& inst : function.instructions)
+        {
+            if (inst.cmd == IrCmd::FMA_SIMD || inst.cmd == IrCmd::FMA_SIMD256)
+                return true;
+        }
+    }
+
     return false;
 }
 

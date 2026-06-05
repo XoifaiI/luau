@@ -23,6 +23,7 @@ inline bool visitorModelsVmRegDefsUses(IrCmd cmd)
     case IrCmd::LOAD_FLOAT:
     case IrCmd::LOAD_TVALUE:
     case IrCmd::LOAD_SIMD:
+    case IrCmd::LOAD_SIMD256:
     case IrCmd::STORE_TAG:
     case IrCmd::STORE_EXTRA:
     case IrCmd::STORE_POINTER:
@@ -33,6 +34,7 @@ inline bool visitorModelsVmRegDefsUses(IrCmd cmd)
     case IrCmd::STORE_TVALUE:
     case IrCmd::STORE_SPLIT_TVALUE:
     case IrCmd::STORE_SIMD:
+    case IrCmd::STORE_SIMD256:
     case IrCmd::CMP_ANY:
     case IrCmd::CMP_TAG:
     case IrCmd::JUMP_IF_TRUTHY:

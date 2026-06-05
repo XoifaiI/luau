@@ -35,11 +35,19 @@ static int simd_splat(lua_State* L)
     return 1;
 }
 
+// Read a SIMD lane index, rejecting non-finite and out-of-range values uniformly across platforms (avoids the
+// undefined behavior of (int)(double) when the index is NaN or out of int range).
+static int simdLaneIndex(lua_State* L, int idx, int lanes)
+{
+    double i = luaL_checknumber(L, idx);
+    luaL_argcheck(L, i >= 0.0 && i < double(lanes), idx, lanes == 4 ? "lane index out of range [0, 3]" : "lane index out of range [0, 7]");
+    return int(i);
+}
+
 static int simd_extract(lua_State* L)
 {
     const uint32_t* v = luaL_checksimd(L, 1);
-    int i = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(i) < 4, 2, "lane index out of range [0, 3]");
+    int i = simdLaneIndex(L, 2, 4);
 
     lua_pushunsigned(L, v[i]);
     return 1;
@@ -78,10 +86,35 @@ static int simd_bnot(lua_State* L)
     return 1;
 }
 
+// Read a SIMD shift count. Reading via a double avoids the undefined behavior of (int)(double) when the count is
+// NaN or out of int range (which also diverged between x86 and ARM). Any count outside [0, 31], including non-finite,
+// is normalized to 32, which the shl/shr ops treat as "every bit shifted out" -> 0.
+static unsigned simdShiftCount(lua_State* L, int idx)
+{
+    double n = luaL_checknumber(L, idx);
+    return (n >= 0.0 && n < 32.0) ? unsigned(n) : 32u;
+}
+
+// Read a SIMD rotate count, taken modulo 32. Finite, in-int32-range counts keep their two's-complement modulo-32
+// meaning (so a negative count rotates the other way); a non-finite or out-of-range count means no rotation.
+static unsigned simdRotateCount(lua_State* L, int idx)
+{
+    double n = luaL_checknumber(L, idx);
+    return (n == n && n >= -2147483648.0 && n < 2147483648.0) ? (unsigned(int(n)) & 31u) : 0u;
+}
+
+// Read a SIMD shuffle/permute selector, rejecting non-finite and out-of-range values uniformly across platforms.
+static int simdShuffleControl(lua_State* L, int idx)
+{
+    double c = luaL_checknumber(L, idx);
+    luaL_argcheck(L, c >= 0.0 && c < 256.0, idx, "shuffle selector out of range [0, 255]");
+    return int(c);
+}
+
 static int simd_shl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    unsigned n = unsigned(luaL_checkinteger(L, 2));
+    unsigned n = simdShiftCount(L, 2);
 
     uint32_t* r = lua_newsimd(L);
     // a count outside [0, 31] shifts every bit out and returns 0, matching the hardware shift and bit32
@@ -93,7 +126,7 @@ static int simd_shl(lua_State* L)
 static int simd_shr(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    unsigned n = unsigned(luaL_checkinteger(L, 2));
+    unsigned n = simdShiftCount(L, 2);
 
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 4; i++)
@@ -104,8 +137,7 @@ static int simd_shr(lua_State* L)
 static int simd_rotl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    // the rotate count is taken modulo 32, so any integer is a valid cyclic rotation
-    unsigned n = unsigned(luaL_checkinteger(L, 2)) & 31;
+    unsigned n = simdRotateCount(L, 2);
 
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 4; i++)
@@ -220,8 +252,7 @@ static int simd_toint(lua_State* L)
 static int simd_shuffle(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int control = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(control) < 256, 2, "shuffle selector out of range [0, 255]");
+    int control = simdShuffleControl(L, 2);
 
     // vpshufd semantics: lane i of the result is lane ((control >> (i*2)) & 3) of the source
     uint32_t src[4];
@@ -236,20 +267,22 @@ static int simd_shuffle(lua_State* L)
 
 static int simd_fcreate(lua_State* L)
 {
+    // validate all arguments before allocating, so a missing argument reports the right index instead of seeing
+    // the freshly pushed result box in its stack slot
+    float f[4];
+    for (int i = 0; i < 4; i++)
+        f[i] = (float)luaL_checknumber(L, i + 1);
+
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 4; i++)
-    {
-        float f = (float)luaL_checknumber(L, i + 1);
-        memcpy(&r[i], &f, sizeof(float));
-    }
+        memcpy(&r[i], &f[i], sizeof(float));
     return 1;
 }
 
 static int simd_fextract(lua_State* L)
 {
     const uint32_t* v = luaL_checksimd(L, 1);
-    int i = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(i) < 4, 2, "lane index out of range [0, 3]");
+    int i = simdLaneIndex(L, 2, 4);
 
     float f;
     memcpy(&f, &v[i], sizeof(float));
@@ -306,7 +339,7 @@ static int simd256_bnot(lua_State* L)
 static int simd256_shl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    unsigned n = unsigned(luaL_checkinteger(L, 2));
+    unsigned n = simdShiftCount(L, 2);
     uint32_t* r = lua_newsimd(L);
     // a count outside [0, 31] shifts every bit out and returns 0, matching the hardware shift and bit32
     for (int i = 0; i < 8; i++)
@@ -317,7 +350,7 @@ static int simd256_shl(lua_State* L)
 static int simd256_shr(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    unsigned n = unsigned(luaL_checkinteger(L, 2));
+    unsigned n = simdShiftCount(L, 2);
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 8; i++)
         r[i] = n < 32 ? a[i] >> n : 0;
@@ -327,8 +360,7 @@ static int simd256_shr(lua_State* L)
 static int simd256_rotl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    // the rotate count is taken modulo 32, so any integer is a valid cyclic rotation
-    unsigned n = unsigned(luaL_checkinteger(L, 2)) & 31;
+    unsigned n = simdRotateCount(L, 2);
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 8; i++)
         r[i] = n == 0 ? a[i] : (a[i] << n) | (a[i] >> (32 - n));
@@ -338,8 +370,7 @@ static int simd256_rotl(lua_State* L)
 static int simd256_shuffle(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int control = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(control) < 256, 2, "shuffle selector out of range [0, 255]");
+    int control = simdShuffleControl(L, 2);
 
     // vpshufd on ymm shuffles within each 128-bit lane independently using the same control byte
     uint32_t src[8];
@@ -453,9 +484,14 @@ static int simd256_toint(lua_State* L)
 
 static int simd256_create(lua_State* L)
 {
+    // validate all arguments before allocating (see simd_fcreate)
+    uint32_t v[8];
+    for (int i = 0; i < 8; i++)
+        v[i] = luaL_checkunsigned(L, i + 1);
+
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 8; i++)
-        r[i] = luaL_checkunsigned(L, i + 1);
+        r[i] = v[i];
     return 1;
 }
 
@@ -471,8 +507,7 @@ static int simd256_splat(lua_State* L)
 static int simd256_extract(lua_State* L)
 {
     const uint32_t* v = luaL_checksimd(L, 1);
-    int i = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(i) < 8, 2, "lane index out of range [0, 7]");
+    int i = simdLaneIndex(L, 2, 8);
 
     lua_pushunsigned(L, v[i]);
     return 1;
@@ -480,12 +515,14 @@ static int simd256_extract(lua_State* L)
 
 static int simd256_fcreate(lua_State* L)
 {
+    // validate all arguments before allocating (see simd_fcreate)
+    float f[8];
+    for (int i = 0; i < 8; i++)
+        f[i] = (float)luaL_checknumber(L, i + 1);
+
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 8; i++)
-    {
-        float f = (float)luaL_checknumber(L, i + 1);
-        memcpy(&r[i], &f, sizeof(float));
-    }
+        memcpy(&r[i], &f[i], sizeof(float));
     return 1;
 }
 
@@ -504,8 +541,7 @@ static int simd256_fsplat(lua_State* L)
 static int simd256_fextract(lua_State* L)
 {
     const uint32_t* v = luaL_checksimd(L, 1);
-    int i = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(i) < 8, 2, "lane index out of range [0, 7]");
+    int i = simdLaneIndex(L, 2, 8);
 
     float f;
     memcpy(&f, &v[i], sizeof(float));

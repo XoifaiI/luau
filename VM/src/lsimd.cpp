@@ -21,7 +21,15 @@ Simd* luaSimd_new(lua_State* L)
 Simd* luaSimd_storeReuse(lua_State* L, TValue* slot)
 {
     if (ttissimd(slot))
-        return simdvalue(slot);
+    {
+        Simd* s = simdvalue(slot);
+        // A 128-bit (4-lane) store overwrites only data[0..3]. Clear the high lanes so reusing a box that previously
+        // held a 256-bit value never leaves stale data[4..7] behind; a 256-bit store overwrites all 8 lanes anyway.
+        // This keeps the "a 128-bit value has zero high lanes" invariant unconditional, which value equality
+        // (luai_simdeq) and hashing (hashsimd) rely on.
+        memset(&s->data[4], 0, sizeof(s->data[0]) * 4);
+        return s;
+    }
 
     Simd* s = luaSimd_new(L);
     setsimdvalue(L, slot, s);
