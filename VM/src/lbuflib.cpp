@@ -1049,6 +1049,211 @@ static int buffer_fma(lua_State* L)
     return 0;
 }
 
+// Transpose a Rows-by-Columns matrix of u32 from src into dst (which becomes Columns-by-Rows). dst and src must not
+// overlap. The AVX2 path tiles into 8x8 blocks and transposes each in registers; the scalar path is the fallback.
+static void buffer_transpose_scalar(uint32_t* dst, const uint32_t* src, unsigned rows, unsigned cols)
+{
+    for (unsigned r = 0; r < rows; r++)
+        for (unsigned c = 0; c < cols; c++)
+            dst[c * rows + r] = src[r * cols + c];
+}
+
+#ifdef LUAU_TARGET_AVX2
+LUAU_TARGET_AVX2 static void buffer_transpose8x8(uint32_t* dst, const uint32_t* src, unsigned dstStride, unsigned srcStride)
+{
+    __m256i r0 = _mm256_loadu_si256((const __m256i*)(src + 0 * srcStride));
+    __m256i r1 = _mm256_loadu_si256((const __m256i*)(src + 1 * srcStride));
+    __m256i r2 = _mm256_loadu_si256((const __m256i*)(src + 2 * srcStride));
+    __m256i r3 = _mm256_loadu_si256((const __m256i*)(src + 3 * srcStride));
+    __m256i r4 = _mm256_loadu_si256((const __m256i*)(src + 4 * srcStride));
+    __m256i r5 = _mm256_loadu_si256((const __m256i*)(src + 5 * srcStride));
+    __m256i r6 = _mm256_loadu_si256((const __m256i*)(src + 6 * srcStride));
+    __m256i r7 = _mm256_loadu_si256((const __m256i*)(src + 7 * srcStride));
+
+    __m256i t0 = _mm256_unpacklo_epi32(r0, r1);
+    __m256i t1 = _mm256_unpackhi_epi32(r0, r1);
+    __m256i t2 = _mm256_unpacklo_epi32(r2, r3);
+    __m256i t3 = _mm256_unpackhi_epi32(r2, r3);
+    __m256i t4 = _mm256_unpacklo_epi32(r4, r5);
+    __m256i t5 = _mm256_unpackhi_epi32(r4, r5);
+    __m256i t6 = _mm256_unpacklo_epi32(r6, r7);
+    __m256i t7 = _mm256_unpackhi_epi32(r6, r7);
+
+    __m256i u0 = _mm256_unpacklo_epi64(t0, t2);
+    __m256i u1 = _mm256_unpackhi_epi64(t0, t2);
+    __m256i u2 = _mm256_unpacklo_epi64(t1, t3);
+    __m256i u3 = _mm256_unpackhi_epi64(t1, t3);
+    __m256i u4 = _mm256_unpacklo_epi64(t4, t6);
+    __m256i u5 = _mm256_unpackhi_epi64(t4, t6);
+    __m256i u6 = _mm256_unpacklo_epi64(t5, t7);
+    __m256i u7 = _mm256_unpackhi_epi64(t5, t7);
+
+    _mm256_storeu_si256((__m256i*)(dst + 0 * dstStride), _mm256_permute2x128_si256(u0, u4, 0x20));
+    _mm256_storeu_si256((__m256i*)(dst + 1 * dstStride), _mm256_permute2x128_si256(u1, u5, 0x20));
+    _mm256_storeu_si256((__m256i*)(dst + 2 * dstStride), _mm256_permute2x128_si256(u2, u6, 0x20));
+    _mm256_storeu_si256((__m256i*)(dst + 3 * dstStride), _mm256_permute2x128_si256(u3, u7, 0x20));
+    _mm256_storeu_si256((__m256i*)(dst + 4 * dstStride), _mm256_permute2x128_si256(u0, u4, 0x31));
+    _mm256_storeu_si256((__m256i*)(dst + 5 * dstStride), _mm256_permute2x128_si256(u1, u5, 0x31));
+    _mm256_storeu_si256((__m256i*)(dst + 6 * dstStride), _mm256_permute2x128_si256(u2, u6, 0x31));
+    _mm256_storeu_si256((__m256i*)(dst + 7 * dstStride), _mm256_permute2x128_si256(u3, u7, 0x31));
+}
+
+LUAU_TARGET_AVX2 static void buffer_transpose_avx2(uint32_t* dst, const uint32_t* src, unsigned rows, unsigned cols)
+{
+    for (unsigned tr = 0; tr < rows; tr += 8)
+        for (unsigned tc = 0; tc < cols; tc += 8)
+            buffer_transpose8x8(dst + tc * rows + tr, src + tr * cols + tc, rows, cols);
+}
+#endif
+
+static void buffer_transpose_bytes(uint32_t* dst, const uint32_t* src, unsigned rows, unsigned cols)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+    if (hasavx2 && (rows % 8) == 0 && (cols % 8) == 0)
+        buffer_transpose_avx2(dst, src, rows, cols);
+    else
+        buffer_transpose_scalar(dst, src, rows, cols);
+#else
+    buffer_transpose_scalar(dst, src, rows, cols);
+#endif
+}
+
+static int buffer_transpose(lua_State* L)
+{
+    size_t dlen = 0;
+    void* dbuf = luaL_checkbuffer(L, 1, &dlen);
+    int doff = luaL_checkinteger(L, 2);
+    size_t slen = 0;
+    void* sbuf = luaL_checkbuffer(L, 3, &slen);
+    int soff = luaL_checkinteger(L, 4);
+    int rows = luaL_checkinteger(L, 5);
+    int cols = luaL_checkinteger(L, 6);
+
+    if (rows <= 0 || cols <= 0)
+        luaL_error(L, "buffer.transpose rows and columns must be positive");
+    if ((doff % 4) != 0 || (soff % 4) != 0)
+        luaL_error(L, "buffer.transpose offsets must be a multiple of 4");
+
+    uint64_t bytes = uint64_t(unsigned(rows)) * unsigned(cols) * 4;
+    if (isoutofbounds(doff, dlen, bytes) || isoutofbounds(soff, slen, bytes))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_transpose_bytes((uint32_t*)((char*)dbuf + doff), (const uint32_t*)((char*)sbuf + soff), unsigned(rows), unsigned(cols));
+    return 0;
+}
+
+// dst = data XOR transpose(src): transpose a Rows-by-Columns u32 matrix and XOR it onto a Columns-by-Rows data block
+// in one pass. dst may alias data (in-place), but src must not overlap dst. This fuses the transpose and the XOR so a
+// transposed keystream never has to round-trip through a buffer (avoiding a store-to-load stall across the call).
+static void buffer_transposexor_scalar(uint32_t* dst, const uint32_t* data, const uint32_t* src, unsigned rows, unsigned cols)
+{
+    for (unsigned r = 0; r < rows; r++)
+        for (unsigned c = 0; c < cols; c++)
+            dst[c * rows + r] = data[c * rows + r] ^ src[r * cols + c];
+}
+
+#ifdef LUAU_TARGET_AVX2
+LUAU_TARGET_AVX2 static void buffer_transposexor8x8(
+    uint32_t* dst, const uint32_t* data, const uint32_t* src, unsigned dstStride, unsigned srcStride
+)
+{
+    __m256i r0 = _mm256_loadu_si256((const __m256i*)(src + 0 * srcStride));
+    __m256i r1 = _mm256_loadu_si256((const __m256i*)(src + 1 * srcStride));
+    __m256i r2 = _mm256_loadu_si256((const __m256i*)(src + 2 * srcStride));
+    __m256i r3 = _mm256_loadu_si256((const __m256i*)(src + 3 * srcStride));
+    __m256i r4 = _mm256_loadu_si256((const __m256i*)(src + 4 * srcStride));
+    __m256i r5 = _mm256_loadu_si256((const __m256i*)(src + 5 * srcStride));
+    __m256i r6 = _mm256_loadu_si256((const __m256i*)(src + 6 * srcStride));
+    __m256i r7 = _mm256_loadu_si256((const __m256i*)(src + 7 * srcStride));
+
+    __m256i t0 = _mm256_unpacklo_epi32(r0, r1);
+    __m256i t1 = _mm256_unpackhi_epi32(r0, r1);
+    __m256i t2 = _mm256_unpacklo_epi32(r2, r3);
+    __m256i t3 = _mm256_unpackhi_epi32(r2, r3);
+    __m256i t4 = _mm256_unpacklo_epi32(r4, r5);
+    __m256i t5 = _mm256_unpackhi_epi32(r4, r5);
+    __m256i t6 = _mm256_unpacklo_epi32(r6, r7);
+    __m256i t7 = _mm256_unpackhi_epi32(r6, r7);
+
+    __m256i u0 = _mm256_unpacklo_epi64(t0, t2);
+    __m256i u1 = _mm256_unpackhi_epi64(t0, t2);
+    __m256i u2 = _mm256_unpacklo_epi64(t1, t3);
+    __m256i u3 = _mm256_unpackhi_epi64(t1, t3);
+    __m256i u4 = _mm256_unpacklo_epi64(t4, t6);
+    __m256i u5 = _mm256_unpackhi_epi64(t4, t6);
+    __m256i u6 = _mm256_unpacklo_epi64(t5, t7);
+    __m256i u7 = _mm256_unpackhi_epi64(t5, t7);
+
+    __m256i o0 = _mm256_permute2x128_si256(u0, u4, 0x20);
+    __m256i o1 = _mm256_permute2x128_si256(u1, u5, 0x20);
+    __m256i o2 = _mm256_permute2x128_si256(u2, u6, 0x20);
+    __m256i o3 = _mm256_permute2x128_si256(u3, u7, 0x20);
+    __m256i o4 = _mm256_permute2x128_si256(u0, u4, 0x31);
+    __m256i o5 = _mm256_permute2x128_si256(u1, u5, 0x31);
+    __m256i o6 = _mm256_permute2x128_si256(u2, u6, 0x31);
+    __m256i o7 = _mm256_permute2x128_si256(u3, u7, 0x31);
+
+    _mm256_storeu_si256((__m256i*)(dst + 0 * dstStride), _mm256_xor_si256(o0, _mm256_loadu_si256((const __m256i*)(data + 0 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 1 * dstStride), _mm256_xor_si256(o1, _mm256_loadu_si256((const __m256i*)(data + 1 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 2 * dstStride), _mm256_xor_si256(o2, _mm256_loadu_si256((const __m256i*)(data + 2 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 3 * dstStride), _mm256_xor_si256(o3, _mm256_loadu_si256((const __m256i*)(data + 3 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 4 * dstStride), _mm256_xor_si256(o4, _mm256_loadu_si256((const __m256i*)(data + 4 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 5 * dstStride), _mm256_xor_si256(o5, _mm256_loadu_si256((const __m256i*)(data + 5 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 6 * dstStride), _mm256_xor_si256(o6, _mm256_loadu_si256((const __m256i*)(data + 6 * dstStride))));
+    _mm256_storeu_si256((__m256i*)(dst + 7 * dstStride), _mm256_xor_si256(o7, _mm256_loadu_si256((const __m256i*)(data + 7 * dstStride))));
+}
+
+LUAU_TARGET_AVX2 static void buffer_transposexor_avx2(uint32_t* dst, const uint32_t* data, const uint32_t* src, unsigned rows, unsigned cols)
+{
+    for (unsigned tr = 0; tr < rows; tr += 8)
+        for (unsigned tc = 0; tc < cols; tc += 8)
+            buffer_transposexor8x8(dst + tc * rows + tr, data + tc * rows + tr, src + tr * cols + tc, rows, cols);
+}
+#endif
+
+static void buffer_transposexor_bytes(uint32_t* dst, const uint32_t* data, const uint32_t* src, unsigned rows, unsigned cols)
+{
+#ifdef LUAU_TARGET_AVX2
+    static const bool hasavx2 = buffer_hasavx2();
+    if (hasavx2 && (rows % 8) == 0 && (cols % 8) == 0)
+        buffer_transposexor_avx2(dst, data, src, rows, cols);
+    else
+        buffer_transposexor_scalar(dst, data, src, rows, cols);
+#else
+    buffer_transposexor_scalar(dst, data, src, rows, cols);
+#endif
+}
+
+static int buffer_transposexor(lua_State* L)
+{
+    size_t dlen = 0;
+    void* dbuf = luaL_checkbuffer(L, 1, &dlen);
+    int doff = luaL_checkinteger(L, 2);
+    size_t alen = 0;
+    void* abuf = luaL_checkbuffer(L, 3, &alen);
+    int aoff = luaL_checkinteger(L, 4);
+    size_t slen = 0;
+    void* sbuf = luaL_checkbuffer(L, 5, &slen);
+    int soff = luaL_checkinteger(L, 6);
+    int rows = luaL_checkinteger(L, 7);
+    int cols = luaL_checkinteger(L, 8);
+
+    if (rows <= 0 || cols <= 0)
+        luaL_error(L, "buffer.transposexor rows and columns must be positive");
+    if ((doff % 4) != 0 || (aoff % 4) != 0 || (soff % 4) != 0)
+        luaL_error(L, "buffer.transposexor offsets must be a multiple of 4");
+
+    uint64_t bytes = uint64_t(unsigned(rows)) * unsigned(cols) * 4;
+    if (isoutofbounds(doff, dlen, bytes) || isoutofbounds(aoff, alen, bytes) || isoutofbounds(soff, slen, bytes))
+        luaL_error(L, "buffer access out of bounds");
+
+    buffer_transposexor_bytes(
+        (uint32_t*)((char*)dbuf + doff), (const uint32_t*)((char*)abuf + aoff), (const uint32_t*)((char*)sbuf + soff), unsigned(rows), unsigned(cols)
+    );
+    return 0;
+}
+
 static int buffer_readu32x4(lua_State* L)
 {
     size_t len = 0;
@@ -1263,6 +1468,8 @@ static const luaL_Reg bufferlib[] = {
     {"fmin", buffer_fbinop<buffer_fop_min>},
     {"fmax", buffer_fbinop<buffer_fop_max>},
     {"fma", buffer_fma},
+    {"transpose", buffer_transpose},
+    {"transposexor", buffer_transposexor},
     {"readvector", buffer_readvector},
     {"writevector", buffer_writevector},
     {"readu32x4", buffer_readu32x4},
@@ -1318,6 +1525,8 @@ static const luaL_Reg bufferlib_NOINTEGER[] = {
     {"fmin", buffer_fbinop<buffer_fop_min>},
     {"fmax", buffer_fbinop<buffer_fop_max>},
     {"fma", buffer_fma},
+    {"transpose", buffer_transpose},
+    {"transposexor", buffer_transposexor},
     {"readvector", buffer_readvector},
     {"writevector", buffer_writevector},
     {"readu32x4", buffer_readu32x4},

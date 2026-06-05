@@ -549,10 +549,53 @@ static int simd256_fextract(lua_State* L)
     return 1;
 }
 
+// Extract every lane at once, returning them as a tuple, so a value does not have to be taken apart with a
+// separate extract call per lane.
+static int simd_unpack(lua_State* L)
+{
+    const uint32_t* v = luaL_checksimd(L, 1);
+    for (int i = 0; i < 4; i++)
+        lua_pushunsigned(L, v[i]);
+    return 4;
+}
+
+static int simd_funpack(lua_State* L)
+{
+    const uint32_t* v = luaL_checksimd(L, 1);
+    for (int i = 0; i < 4; i++)
+    {
+        float f;
+        memcpy(&f, &v[i], sizeof(float));
+        lua_pushnumber(L, f);
+    }
+    return 4;
+}
+
+static int simd256_unpack(lua_State* L)
+{
+    const uint32_t* v = luaL_checksimd(L, 1);
+    for (int i = 0; i < 8; i++)
+        lua_pushunsigned(L, v[i]);
+    return 8;
+}
+
+static int simd256_funpack(lua_State* L)
+{
+    const uint32_t* v = luaL_checksimd(L, 1);
+    for (int i = 0; i < 8; i++)
+    {
+        float f;
+        memcpy(&f, &v[i], sizeof(float));
+        lua_pushnumber(L, f);
+    }
+    return 8;
+}
+
 static const luaL_Reg simd256lib[] = {
     {"create", simd256_create},
     {"splat", simd256_splat},
     {"extract", simd256_extract},
+    {"unpack", simd256_unpack},
     {"add", simd256_add},
     {"sub", simd256_sub},
     {"mul", simd256_mul},
@@ -581,6 +624,7 @@ static const luaL_Reg simdlib[] = {
     {"create", simd_create},
     {"splat", simd_splat},
     {"extract", simd_extract},
+    {"unpack", simd_unpack},
     {"add", simd_add},
     {"sub", simd_sub},
     {"mul", simd_mul},
@@ -604,6 +648,7 @@ static const luaL_Reg simdlib[] = {
     {"shuffle", simd_shuffle},
     {"fcreate", simd_fcreate},
     {"fextract", simd_fextract},
+    {"funpack", simd_funpack},
     {NULL, NULL},
 };
 
@@ -614,6 +659,7 @@ static const luaL_Reg u32x4lib[] = {
     {"create", simd_create},
     {"splat", simd_splat},
     {"extract", simd_extract},
+    {"unpack", simd_unpack},
     {"add", simd_add},
     {"sub", simd_sub},
     {"mul", simd_mul},
@@ -633,6 +679,7 @@ static const luaL_Reg f32x4lib[] = {
     {"create", simd_fcreate},
     {"splat", simd_fsplat},
     {"extract", simd_fextract},
+    {"unpack", simd_funpack},
     {"add", simd_fadd},
     {"sub", simd_fsub},
     {"mul", simd_fmul},
@@ -649,6 +696,7 @@ static const luaL_Reg u32x8lib[] = {
     {"create", simd256_create},
     {"splat", simd256_splat},
     {"extract", simd256_extract},
+    {"unpack", simd256_unpack},
     {"add", simd256_add},
     {"sub", simd256_sub},
     {"mul", simd256_mul},
@@ -668,6 +716,7 @@ static const luaL_Reg f32x8lib[] = {
     {"create", simd256_fcreate},
     {"splat", simd256_fsplat},
     {"extract", simd256_fextract},
+    {"unpack", simd256_funpack},
     {"add", simd256_fadd},
     {"sub", simd256_fsub},
     {"mul", simd256_fmul},
