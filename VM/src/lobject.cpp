@@ -48,6 +48,8 @@ int luaO_rawequalObj(const TValue* t1, const TValue* t2)
             return luai_inteq(lvalue(t1), lvalue(t2));
         case LUA_TVECTOR:
             return luai_veceq(vvalue(t1), vvalue(t2));
+        case LUA_TSIMD:
+            return luai_simdeq(simdvalue(t1), simdvalue(t2));
         case LUA_TBOOLEAN:
             return bvalue(t1) == bvalue(t2); // boolean true must be 1 !!
         case LUA_TLIGHTUSERDATA:
@@ -73,6 +75,8 @@ int luaO_rawequalKey(const TKey* t1, const TValue* t2)
             return luai_inteq(lvalue(t1), lvalue(t2));
         case LUA_TVECTOR:
             return luai_veceq(vvalue(t1), vvalue(t2));
+        case LUA_TSIMD:
+            return luai_simdeq(simdvalue(t1), simdvalue(t2));
         case LUA_TBOOLEAN:
             return bvalue(t1) == bvalue(t2); // boolean true must be 1 !!
         case LUA_TLIGHTUSERDATA:

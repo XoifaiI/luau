@@ -26,6 +26,7 @@
 #include "ltable.h"
 
 #include "lstate.h"
+#include "lstring.h"
 #include "ldebug.h"
 #include "lgc.h"
 #include "lmem.h"
@@ -151,6 +152,13 @@ static LuaNode* hashvec(const LuaTable* t, const float* v)
     return hashpow2(t, h);
 }
 
+static LuaNode* hashsimd(const LuaTable* t, const uint32_t* d)
+{
+    // hash the raw lane bytes with the same byte hash strings use, so the hash matches luai_simdeq (which compares
+    // those bytes) and equal vectors land in the same slot
+    return hashpow2(t, luaS_hash(reinterpret_cast<const char*>(d), 8 * sizeof(uint32_t)));
+}
+
 /*
 ** returns the `main' position of an element in a table (that is, the index
 ** of its hash value)
@@ -165,6 +173,8 @@ static LuaNode* mainposition(const LuaTable* t, const TValue* key)
         return hashint(t, lvalue(key));
     case LUA_TVECTOR:
         return hashvec(t, vvalue(key));
+    case LUA_TSIMD:
+        return hashsimd(t, simdvalue(key)->data);
     case LUA_TSTRING:
         return hashstr(t, tsvalue(key));
     case LUA_TBOOLEAN:

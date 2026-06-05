@@ -327,6 +327,8 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_ADD;
         if (builtin.method == "sub")
             return LBF_SIMD256_SUB;
+        if (builtin.method == "mul")
+            return LBF_SIMD256_MUL;
         if (builtin.method == "band")
             return LBF_SIMD256_BAND;
         if (builtin.method == "bor")
@@ -375,6 +377,8 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_ADD;
         if (builtin.method == "sub")
             return LBF_SIMD256_SUB;
+        if (builtin.method == "mul")
+            return LBF_SIMD256_MUL;
         if (builtin.method == "band")
             return LBF_SIMD256_BAND;
         if (builtin.method == "bor")
@@ -890,6 +894,7 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_BUFFER_WRITESIMD256:
         return {3, 0, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD256_ADD:
+    case LBF_SIMD256_MUL:
     case LBF_SIMD256_SUB:
     case LBF_SIMD256_BAND:
     case LBF_SIMD256_BOR:

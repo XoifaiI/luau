@@ -3505,9 +3505,22 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         build.vcvtdq2ps(inst.regX64, regOp(OP_A(inst)));
         break;
     case IrCmd::TOINT_SIMD:
+    {
         inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
-        build.vcvttps2dq(inst.regX64, regOp(OP_A(inst)));
+        RegisterX64 src = regOp(OP_A(inst));
+
+        // Saturating float->int, matching ARM fcvtzs and the interpreter. cvttps2dq on its own returns 0x80000000
+        // for NaN and for both overflow directions; that is already correct for negative overflow, so we turn
+        // positive overflow into INT_MAX and NaN into 0. Both masks are read from src before cvttps2dq overwrites it.
+        ScopedRegX64 ge{regs, SizeX64::xmmword};
+        ScopedRegX64 notnan{regs, SizeX64::xmmword};
+        build.vcmpnltps(ge.reg, src, build.u32x4(0x4f000000, 0x4f000000, 0x4f000000, 0x4f000000)); // src >= 2^31 or NaN
+        build.vcmpeqps(notnan.reg, src, src);                                                       // 0 where NaN
+        build.vcvttps2dq(inst.regX64, src);
+        build.vpxor(inst.regX64, inst.regX64, ge.reg);      // positive overflow: 0x80000000 -> 0x7fffffff
+        build.vandps(inst.regX64, inst.regX64, notnan.reg); // NaN -> 0
         break;
+    }
     case IrCmd::SHUFFLE_SIMD:
         inst.regX64 = regs.allocRegOrReuse(SizeX64::xmmword, index, {OP_A(inst)});
         build.vpshufd(inst.regX64, regOp(OP_A(inst)), uint8_t(intOp(OP_B(inst))));
@@ -3638,6 +3651,10 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
         build.vpaddd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
         break;
+    case IrCmd::MUL_SIMD256:
+        inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
+        build.vpmulld(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
+        break;
     case IrCmd::SUB_SIMD256:
         inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst), OP_B(inst)});
         build.vpsubd(inst.regX64, regOp(OP_A(inst)), regOp(OP_B(inst)));
@@ -3753,9 +3770,22 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         build.vcvtdq2ps(inst.regX64, regOp(OP_A(inst)));
         break;
     case IrCmd::TOINT_SIMD256:
+    {
         inst.regX64 = regs.allocRegOrReuse(SizeX64::ymmword, index, {OP_A(inst)});
-        build.vcvttps2dq(inst.regX64, regOp(OP_A(inst)));
+        RegisterX64 src = regOp(OP_A(inst));
+
+        // saturating float->int (see TOINT_SIMD); same fixup widened to 8 lanes
+        ScopedRegX64 ge{regs, SizeX64::ymmword};
+        ScopedRegX64 notnan{regs, SizeX64::ymmword};
+        build.vcmpnltps(
+            ge.reg, src, build.u32x8(0x4f000000, 0x4f000000, 0x4f000000, 0x4f000000, 0x4f000000, 0x4f000000, 0x4f000000, 0x4f000000)
+        );
+        build.vcmpeqps(notnan.reg, src, src);
+        build.vcvttps2dq(inst.regX64, src);
+        build.vpxor(inst.regX64, inst.regX64, ge.reg);      // positive overflow: 0x80000000 -> 0x7fffffff
+        build.vandps(inst.regX64, inst.regX64, notnan.reg); // NaN -> 0
         break;
+    }
     case IrCmd::FMA_SIMD256:
     {
         if ((build.features & Feature_FMA3) != 0)

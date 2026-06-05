@@ -83,6 +83,10 @@ typedef struct lua_TValue
 #define thvalue(o) check_exp(ttisthread(o), &(o)->value.gc->th)
 #define bufvalue(o) check_exp(ttisbuffer(o), &(o)->value.gc->buf)
 #define simdvalue(o) check_exp(ttissimd(o), &(o)->value.gc->simd)
+// SIMD values compare and hash by their lane bits, so two vectors holding identical lane data are equal even though
+// they are distinct heap objects. The whole 32 byte payload is compared: a 128 bit value zeroes its high lanes, so
+// the unused half matches between equal values.
+#define luai_simdeq(a, b) (memcmp((a)->data, (b)->data, sizeof((a)->data)) == 0)
 #define upvalue(o) check_exp(ttisupval(o), &(o)->value.gc->uv)
 #define classvalue(o) check_exp(ttisclass(o), &(o)->value.gc->lclass)
 #define objectvalue(o) check_exp(ttisobject(o), &(o)->value.gc->lobject)

@@ -809,6 +809,7 @@ struct TypeMapVisitor : AstVisitor
             case LBF_BUFFER_READSIMD256:
             case LBF_BUFFER_WRITESIMD256:
             case LBF_SIMD256_ADD:
+            case LBF_SIMD256_MUL:
             case LBF_SIMD256_SUB:
             case LBF_SIMD256_BAND:
             case LBF_SIMD256_BOR:

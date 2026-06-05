@@ -1037,6 +1037,12 @@ void AssemblyBuilderX64::vcmpeqps(OperandX64 dst, OperandX64 src1, OperandX64 sr
     placeAvx("vcmpeqps", dst, src1, src2, 0x00, 0xc2, false, AVX_0F, AVX_NP);
 }
 
+void AssemblyBuilderX64::vcmpnltps(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    // predicate 0x05 (NLT): src1 >= src2 in each lane, and also true for an unordered (NaN) compare
+    placeAvx("vcmpnltps", dst, src1, src2, 0x05, 0xc2, false, AVX_0F, AVX_NP);
+}
+
 void AssemblyBuilderX64::vblendvps(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, RegisterX64 mask)
 {
     // bits [7:4] of imm8 are used to select register for operand 4

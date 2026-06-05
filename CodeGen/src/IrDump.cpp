@@ -595,6 +595,8 @@ const char* getCmdName(IrCmd cmd)
         return "ADD_SIMD256";
     case IrCmd::SUB_SIMD256:
         return "SUB_SIMD256";
+    case IrCmd::MUL_SIMD256:
+        return "MUL_SIMD256";
     case IrCmd::AND_SIMD256:
         return "AND_SIMD256";
     case IrCmd::OR_SIMD256:

@@ -81,32 +81,31 @@ static int simd_bnot(lua_State* L)
 static int simd_shl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int n = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(n) < 32, 2, "shift count out of range [0, 31]");
+    unsigned n = unsigned(luaL_checkinteger(L, 2));
 
     uint32_t* r = lua_newsimd(L);
+    // a count outside [0, 31] shifts every bit out and returns 0, matching the hardware shift and bit32
     for (int i = 0; i < 4; i++)
-        r[i] = a[i] << n;
+        r[i] = n < 32 ? a[i] << n : 0;
     return 1;
 }
 
 static int simd_shr(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int n = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(n) < 32, 2, "shift count out of range [0, 31]");
+    unsigned n = unsigned(luaL_checkinteger(L, 2));
 
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 4; i++)
-        r[i] = a[i] >> n;
+        r[i] = n < 32 ? a[i] >> n : 0;
     return 1;
 }
 
 static int simd_rotl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int n = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(n) < 32, 2, "rotate count out of range [0, 31]");
+    // the rotate count is taken modulo 32, so any integer is a valid cyclic rotation
+    unsigned n = unsigned(luaL_checkinteger(L, 2)) & 31;
 
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 4; i++)
@@ -201,12 +200,18 @@ static int simd_toint(lua_State* L)
     {
         float x;
         memcpy(&x, &a[i], sizeof(float));
-        // Match vcvttps2dq: truncate toward zero; NaN or out-of-range lanes become 0x80000000
+        // Saturating truncate toward zero, matching ARM fcvtzs and WASM trunc_sat_s: NaN becomes 0 and out-of-range
+        // values clamp to the signed 32-bit ends. (Bare x86 cvttps2dq returns 0x80000000 for all of these, so the
+        // x64 native lowering fixes it up to agree with this.)
         int32_t z;
-        if (x >= -2147483648.0f && x < 2147483648.0f)
-            z = (int32_t)x;
-        else
+        if (x != x)
+            z = 0;
+        else if (x >= 2147483648.0f)
+            z = 2147483647;
+        else if (x < -2147483648.0f)
             z = (int32_t)0x80000000;
+        else
+            z = (int32_t)x;
         memcpy(&r[i], &z, sizeof(int32_t));
     }
     return 1;
@@ -282,6 +287,7 @@ static int simd_fsplat(lua_State* L)
 
 SIMD256_BINOP(add, x + y)
 SIMD256_BINOP(sub, x - y)
+SIMD256_BINOP(mul, x * y)
 SIMD256_BINOP(band, x & y)
 SIMD256_BINOP(bor, x | y)
 SIMD256_BINOP(bxor, x ^ y)
@@ -300,30 +306,29 @@ static int simd256_bnot(lua_State* L)
 static int simd256_shl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int n = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(n) < 32, 2, "shift count out of range [0, 31]");
+    unsigned n = unsigned(luaL_checkinteger(L, 2));
     uint32_t* r = lua_newsimd(L);
+    // a count outside [0, 31] shifts every bit out and returns 0, matching the hardware shift and bit32
     for (int i = 0; i < 8; i++)
-        r[i] = a[i] << n;
+        r[i] = n < 32 ? a[i] << n : 0;
     return 1;
 }
 
 static int simd256_shr(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int n = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(n) < 32, 2, "shift count out of range [0, 31]");
+    unsigned n = unsigned(luaL_checkinteger(L, 2));
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 8; i++)
-        r[i] = a[i] >> n;
+        r[i] = n < 32 ? a[i] >> n : 0;
     return 1;
 }
 
 static int simd256_rotl(lua_State* L)
 {
     const uint32_t* a = luaL_checksimd(L, 1);
-    int n = luaL_checkinteger(L, 2);
-    luaL_argcheck(L, unsigned(n) < 32, 2, "rotate count out of range [0, 31]");
+    // the rotate count is taken modulo 32, so any integer is a valid cyclic rotation
+    unsigned n = unsigned(luaL_checkinteger(L, 2)) & 31;
     uint32_t* r = lua_newsimd(L);
     for (int i = 0; i < 8; i++)
         r[i] = n == 0 ? a[i] : (a[i] << n) | (a[i] >> (32 - n));
@@ -431,11 +436,16 @@ static int simd256_toint(lua_State* L)
     {
         float x;
         memcpy(&x, &a[i], sizeof(float));
+        // saturating truncate toward zero (see simd_toint): NaN -> 0, out-of-range clamps to the signed 32-bit ends
         int32_t z;
-        if (x >= -2147483648.0f && x < 2147483648.0f)
-            z = (int32_t)x;
-        else
+        if (x != x)
+            z = 0;
+        else if (x >= 2147483648.0f)
+            z = 2147483647;
+        else if (x < -2147483648.0f)
             z = (int32_t)0x80000000;
+        else
+            z = (int32_t)x;
         memcpy(&r[i], &z, sizeof(int32_t));
     }
     return 1;
@@ -509,6 +519,7 @@ static const luaL_Reg simd256lib[] = {
     {"extract", simd256_extract},
     {"add", simd256_add},
     {"sub", simd256_sub},
+    {"mul", simd256_mul},
     {"band", simd256_band},
     {"bor", simd256_bor},
     {"bxor", simd256_bxor},
@@ -604,6 +615,7 @@ static const luaL_Reg u32x8lib[] = {
     {"extract", simd256_extract},
     {"add", simd256_add},
     {"sub", simd256_sub},
+    {"mul", simd256_mul},
     {"band", simd256_band},
     {"bor", simd256_bor},
     {"bxor", simd256_bxor},

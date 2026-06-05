@@ -4115,6 +4115,7 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         break;
     }
     case IrCmd::ADD_SIMD256:
+    case IrCmd::MUL_SIMD256:
     case IrCmd::SUB_SIMD256:
     case IrCmd::AND_SIMD256:
     case IrCmd::OR_SIMD256:
@@ -4134,6 +4135,7 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         {
         case IrCmd::ADD_SIMD256: build.add_4s(inst.regA64, aLo, bLo); build.add_4s(hi, aHi, bHi); break;
         case IrCmd::SUB_SIMD256: build.sub_4s(inst.regA64, aLo, bLo); build.sub_4s(hi, aHi, bHi); break;
+        case IrCmd::MUL_SIMD256: build.mul_4s(inst.regA64, aLo, bLo); build.mul_4s(hi, aHi, bHi); break;
         case IrCmd::AND_SIMD256: build.and_16b(inst.regA64, aLo, bLo); build.and_16b(hi, aHi, bHi); break;
         case IrCmd::OR_SIMD256: build.orr_16b(inst.regA64, aLo, bLo); build.orr_16b(hi, aHi, bHi); break;
         case IrCmd::XOR_SIMD256: build.eor_16b(inst.regA64, aLo, bLo); build.eor_16b(hi, aHi, bHi); break;

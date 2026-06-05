@@ -566,6 +566,7 @@ static void applyBuiltinCall(LuauBuiltinFunction bfid, BytecodeTypes& types)
         types.b = LBC_TYPE_NUMBER;
         break;
     case LBF_SIMD256_ADD:
+    case LBF_SIMD256_MUL:
     case LBF_SIMD256_SUB:
     case LBF_SIMD256_BAND:
     case LBF_SIMD256_BOR:

@@ -267,10 +267,10 @@ declare buffer: {
     fma: @checked (target: buffer, targetOffset: number, mul: buffer, mulOffset: number?, add: buffer, addOffset: number?, count: number?) -> (),
     readvector: @checked (b: buffer, offset: number) -> vector,
     writevector: @checked (b: buffer, offset: number, v: vector) -> (),
-    readu32x4: @checked (b: buffer, offset: number) -> any,
-    writeu32x4: @checked (b: buffer, offset: number, value: any) -> (),
-    readu32x8: @checked (b: buffer, offset: number) -> any,
-    writeu32x8: @checked (b: buffer, offset: number, value: any) -> (),
+    readu32x4: @checked (b: buffer, offset: number) -> simd,
+    writeu32x4: @checked (b: buffer, offset: number, value: simd) -> (),
+    readu32x8: @checked (b: buffer, offset: number) -> simd,
+    writeu32x8: @checked (b: buffer, offset: number, value: simd) -> (),
     readi8: @checked (b: buffer, offset: number) -> number,
     readu8: @checked (b: buffer, offset: number) -> number,
     readi16: @checked (b: buffer, offset: number) -> number,
@@ -325,10 +325,10 @@ declare buffer: {
     fma: @checked (target: buffer, targetOffset: number, mul: buffer, mulOffset: number?, add: buffer, addOffset: number?, count: number?) -> (),
     readvector: @checked (b: buffer, offset: number) -> vector,
     writevector: @checked (b: buffer, offset: number, v: vector) -> (),
-    readu32x4: @checked (b: buffer, offset: number) -> any,
-    writeu32x4: @checked (b: buffer, offset: number, value: any) -> (),
-    readu32x8: @checked (b: buffer, offset: number) -> any,
-    writeu32x8: @checked (b: buffer, offset: number, value: any) -> (),
+    readu32x4: @checked (b: buffer, offset: number) -> simd,
+    writeu32x4: @checked (b: buffer, offset: number, value: simd) -> (),
+    readu32x8: @checked (b: buffer, offset: number) -> simd,
+    writeu32x8: @checked (b: buffer, offset: number, value: simd) -> (),
     readi8: @checked (b: buffer, offset: number) -> number,
     readu8: @checked (b: buffer, offset: number) -> number,
     readi16: @checked (b: buffer, offset: number) -> number,
@@ -395,6 +395,7 @@ declare simd256: {
     extract: @checked (v: simd, index: number) -> number,
     add: @checked (a: simd, b: simd) -> simd,
     sub: @checked (a: simd, b: simd) -> simd,
+    mul: @checked (a: simd, b: simd) -> simd,
     band: @checked (a: simd, b: simd) -> simd,
     bor: @checked (a: simd, b: simd) -> simd,
     bxor: @checked (a: simd, b: simd) -> simd,
@@ -456,6 +457,7 @@ declare u32x8: {
     extract: @checked (v: simd, index: number) -> number,
     add: @checked (a: simd, b: simd) -> simd,
     sub: @checked (a: simd, b: simd) -> simd,
+    mul: @checked (a: simd, b: simd) -> simd,
     band: @checked (a: simd, b: simd) -> simd,
     bor: @checked (a: simd, b: simd) -> simd,
     bxor: @checked (a: simd, b: simd) -> simd,
@@ -605,12 +607,14 @@ std::string getBuiltinDefinitionSource()
     result += kBuiltinDefinitionTableSrc;
     result += kBuiltinDefinitionDebugSrc;
     result += kBuiltinDefinitionUtf8Src;
+
+    // simd is declared before buffer so the buffer SIMD read/write builtins can refer to the simd type
+    result += kBuiltinDefinitionSimdSrc;
+
     if (FFlag::LuauIntegerType2 && FFlag::LuauIntegerLibrary)
         result += kBuiltinDefinitionBufferSrc;
     else
         result += kBuiltinDefinitionBufferSrc_NOINTEGER;
-
-    result += kBuiltinDefinitionSimdSrc;
 
     if (FFlag::LuauTypeCheckerVectorReadOnly)
     {

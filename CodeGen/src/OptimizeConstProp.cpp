@@ -1625,6 +1625,7 @@ static void handleBuiltinEffects(ConstPropState& state, LuauBuiltinFunction bfid
     case LBF_SIMD_TOINT:
     case LBF_SIMD_SHUFFLE:
     case LBF_SIMD256_ADD:
+    case LBF_SIMD256_MUL:
     case LBF_SIMD256_SUB:
     case LBF_SIMD256_BAND:
     case LBF_SIMD256_BOR:
@@ -2187,6 +2188,7 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
     case IrCmd::SHUFFLE_SIMD:
     case IrCmd::BUFFER_READSIMD256:
     case IrCmd::ADD_SIMD256:
+    case IrCmd::MUL_SIMD256:
     case IrCmd::SUB_SIMD256:
     case IrCmd::AND_SIMD256:
     case IrCmd::OR_SIMD256:

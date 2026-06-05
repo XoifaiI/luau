@@ -2237,6 +2237,8 @@ BuiltinImplResult translateBuiltin(
         return translateBuiltinSimd256Binary(build, IrCmd::ADD_SIMD256, nparams, ra, arg, args, nresults, pcpos);
     case LBF_SIMD256_SUB:
         return translateBuiltinSimd256Binary(build, IrCmd::SUB_SIMD256, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD256_MUL:
+        return translateBuiltinSimd256Binary(build, IrCmd::MUL_SIMD256, nparams, ra, arg, args, nresults, pcpos);
     case LBF_SIMD256_BAND:
         return translateBuiltinSimd256Binary(build, IrCmd::AND_SIMD256, nparams, ra, arg, args, nresults, pcpos);
     case LBF_SIMD256_BOR:

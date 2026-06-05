@@ -442,6 +442,7 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::BUFFER_READSIMD256:
     case IrCmd::LOAD_SIMD256:
     case IrCmd::ADD_SIMD256:
+    case IrCmd::MUL_SIMD256:
     case IrCmd::SUB_SIMD256:
     case IrCmd::AND_SIMD256:
     case IrCmd::OR_SIMD256:

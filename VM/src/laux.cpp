@@ -665,6 +665,32 @@ const char* luaL_tolstring(lua_State* L, int idx, size_t* len)
         lua_pushlstring(L, s, e - s);
         break;
     }
+    case LUA_TSIMD:
+    {
+        const uint32_t* v = lua_tosimd(L, idx);
+
+        // show all eight 32-bit lanes as unsigned integers; since the value carries no width, a 128-bit value
+        // prints its high four lanes as the zeros it stores there
+        char s[LUAI_MAXINT2STR * 8 + 16];
+        char* e = s;
+        *e++ = 's';
+        *e++ = 'i';
+        *e++ = 'm';
+        *e++ = 'd';
+        *e++ = '(';
+        for (int i = 0; i < 8; ++i)
+        {
+            if (i != 0)
+            {
+                *e++ = ',';
+                *e++ = ' ';
+            }
+            e = luai_int2str(e, int64_t(v[i]));
+        }
+        *e++ = ')';
+        lua_pushlstring(L, s, e - s);
+        break;
+    }
     case LUA_TSTRING:
         lua_pushvalue(L, idx);
         break;

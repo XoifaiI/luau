@@ -186,6 +186,7 @@ public:
     void vcmpltsd(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vcmpltss(OperandX64 dst, OperandX64 src1, OperandX64 src2);
     void vcmpeqps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
+    void vcmpnltps(OperandX64 dst, OperandX64 src1, OperandX64 src2);
 
     void vblendvps(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, RegisterX64 mask);
     void vblendvpd(RegisterX64 dst, RegisterX64 src1, OperandX64 src2, RegisterX64 mask);

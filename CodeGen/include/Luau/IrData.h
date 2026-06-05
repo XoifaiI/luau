@@ -1120,6 +1120,7 @@ enum class IrCmd : uint16_t
     STORE_SIMD256,
     ADD_SIMD256,
     SUB_SIMD256,
+    MUL_SIMD256,
     AND_SIMD256,
     OR_SIMD256,
     XOR_SIMD256,

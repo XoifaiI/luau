@@ -2765,6 +2765,7 @@ const luau_FastFunction luauF_table[256] = {
     luauF_missing, // LBF_BUFFER_WRITESIMD256
     luauF_missing, // LBF_SIMD256_ADD
     luauF_missing, // LBF_SIMD256_SUB
+    luauF_missing, // LBF_SIMD256_MUL
     luauF_missing, // LBF_SIMD256_BAND
     luauF_missing, // LBF_SIMD256_BOR
     luauF_missing, // LBF_SIMD256_BXOR
