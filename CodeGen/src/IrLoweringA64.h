@@ -109,6 +109,10 @@ struct IrLoweringA64
     // SIMD register slots whose box never escapes: STORE_SIMD can reuse the box in place instead of allocating
     std::array<bool, 256> simdSlotReuse{};
 
+    // True once this function has stored to the slot; the first (init) store must allocate fresh, because before it
+    // the slot can hold a foreign box (an inline-temporary SIMD argument the caller left aliased here).
+    std::array<bool, 256> simdSlotStored{};
+
     bool error = false;
 };
 

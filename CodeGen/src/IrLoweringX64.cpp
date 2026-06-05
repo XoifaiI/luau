@@ -3421,7 +3421,12 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
     {
         // For a slot whose box never escapes, reuse the existing box (or allocate one once) and overwrite its lane
         // data in place. This avoids an allocation on every store, which is what makes loop-carried SIMD locals fast.
-        if (OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))])
+        // But the FIRST store to the slot must allocate fresh: before it the slot can hold a foreign box (an inline
+        // temporary SIMD value the caller left aliased here), so reusing it would corrupt the caller's value.
+        bool reuse = OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))] && simdSlotStored[vmRegOp(OP_A(inst))];
+        if (OP_A(inst).kind == IrOpKind::VmReg)
+            simdSlotStored[vmRegOp(OP_A(inst))] = true;
+        if (reuse)
         {
             IrCallWrapperX64 callWrap(regs, build, index);
             callWrap.addArgument(SizeX64::qword, rState);
@@ -3690,7 +3695,10 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
 
     case IrCmd::STORE_SIMD256:
     {
-        if (OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))])
+        bool reuse = OP_A(inst).kind == IrOpKind::VmReg && simdSlotReuse[vmRegOp(OP_A(inst))] && simdSlotStored[vmRegOp(OP_A(inst))];
+        if (OP_A(inst).kind == IrOpKind::VmReg)
+            simdSlotStored[vmRegOp(OP_A(inst))] = true;
+        if (reuse)
         {
             IrCallWrapperX64 callWrap(regs, build, index);
             callWrap.addArgument(SizeX64::qword, rState);

@@ -44,6 +44,10 @@ struct RegisterInfo
     // When tag == LUA_TSIMD, distinguishes an 8-wide (Simd256) value from a 4-wide one. 4-wide and 8-wide
     // share the LUA_TSIMD tag, so width must be tracked separately to rewrite SIMD local moves at the right size.
     bool simd256 = false;
+    // True only when simd256 was set from an explicit width-bearing op (a SIMD store). A LUA_TSIMD tag restored by
+    // CHECK_TAG/updateTag carries no width, so simd256 would default to false (4-wide) and a SIMD move of an 8-wide
+    // value would copy only the low 128 bits, dropping lanes 4..7. The move rewrite must skip unless this is set.
+    bool simdWidthKnown = false;
     IrOp value;
 
     // Used to quickly invalidate links between SSA values and register memory
@@ -196,13 +200,26 @@ struct ConstPropState
     void saveSimdWidth(IrOp op, bool is256)
     {
         if (RegisterInfo* info = tryGetRegisterInfo(op))
+        {
             info->simd256 = is256;
+            info->simdWidthKnown = true;
+        }
     }
 
     bool isSimd256(IrOp op)
     {
         if (RegisterInfo* info = tryGetRegisterInfo(op))
             return info->tag == LUA_TSIMD && info->simd256;
+
+        return false;
+    }
+
+    // True only when the register's SIMD width was recorded by a width-bearing op (not merely a restored LUA_TSIMD
+    // tag). The SIMD move rewrite must gate on this so it never copies an unknown-width SIMD value at 4-wide.
+    bool isSimdWidthKnown(IrOp op)
+    {
+        if (RegisterInfo* info = tryGetRegisterInfo(op))
+            return info->tag == LUA_TSIMD && info->simdWidthKnown;
 
         return false;
     }
@@ -243,6 +260,7 @@ struct ConstPropState
         {
             reg.tag = 0xff;
             reg.simd256 = false;
+            reg.simdWidthKnown = false;
         }
 
         if (invalidateValue)
@@ -2237,12 +2255,14 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
             IrInst& src = function.instructions[srcIdx];
 
             if (src.cmd == IrCmd::LOAD_TVALUE && OP_A(src).kind == IrOpKind::VmReg && src.useCount == 1 &&
-                srcIdx >= block.start && state.tryGetTag(OP_A(src)) == LUA_TSIMD)
+                srcIdx >= block.start && state.tryGetTag(OP_A(src)) == LUA_TSIMD && state.isSimdWidthKnown(OP_A(src)))
             {
                 IrOp dstReg = OP_A(inst);
 
                 // 4-wide and 8-wide share the LUA_TSIMD tag, so copy at the source register's tracked width:
-                // an 8-wide value must use LOAD/STORE_SIMD256 or the move would read only the low 128 bits.
+                // an 8-wide value must use LOAD/STORE_SIMD256 or the move would read only the low 128 bits. The
+                // width is only trustworthy when isSimdWidthKnown holds (gated above); otherwise this rewrite is
+                // skipped and the move stays a full-TValue copy, which is correct at any width.
                 bool is256 = state.isSimd256(OP_A(src));
                 IrCmd loadCmd = is256 ? IrCmd::LOAD_SIMD256 : IrCmd::LOAD_SIMD;
                 IrCmd storeCmd = is256 ? IrCmd::STORE_SIMD256 : IrCmd::STORE_SIMD;

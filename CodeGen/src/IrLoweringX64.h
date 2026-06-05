@@ -114,6 +114,12 @@ struct IrLoweringX64
     // touched by LOAD_SIMD/STORE_SIMD). Such a box can be reused in place by STORE_SIMD instead of allocating a
     // fresh box each time, which eliminates per-iteration allocation for loop-carried SIMD locals.
     std::array<bool, 256> simdSlotReuse{};
+
+    // For each VM register slot, true once this function has emitted a STORE_SIMD to it. The FIRST (init) store to a
+    // reuse-eligible slot must NOT reuse: before it, the slot can hold a foreign box (e.g. an inline-temporary SIMD
+    // argument the caller left aliased in this slot), and reusing it would overwrite the caller's live value. Only
+    // after the function has established its own box (a prior store) is in-place reuse safe.
+    std::array<bool, 256> simdSlotStored{};
 };
 
 } // namespace X64
