@@ -358,8 +358,14 @@ private:
     std::vector<Label> pendingLabels;
     std::vector<uint32_t> labelLocations;
 
+    // Deduplicates a fixed-size constant blob (vector constants and bytes) against previously emitted data, so identical
+    // shuffle masks and splat patterns share a single pool slot instead of one copy per use.
+    OperandX64 memoizeData(const void* value, size_t size, size_t align, SizeX64 opsize);
+
     DenseHashMap<uint32_t, int32_t> constCache32;
     DenseHashMap<uint64_t, int32_t> constCache64;
+    // Key: content hash of the blob. Value: low 32 bits the rip-relative offset, high 32 bits the blob size in bytes.
+    DenseHashMap<uint64_t, uint64_t> constCacheVec;
 
     bool finalized = false;
 

@@ -1,10 +1,13 @@
 // This file is part of the Luau programming language and is licensed under MIT License; see LICENSE.txt for details
 #include "Luau/AssemblyBuilderX64.h"
 
+#include "Luau/StringUtils.h"
+
 #include "ByteUtils.h"
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace Luau
 {
@@ -84,6 +87,7 @@ AssemblyBuilderX64::AssemblyBuilderX64(bool logText, ABIX64 abi, unsigned int fe
     , features(features)
     , constCache32(~0u)
     , constCache64(~0ull)
+    , constCacheVec(~0ull)
 {
     data.resize(4096);
     dataPos = data.size(); // data is filled backwards
@@ -1383,47 +1387,79 @@ OperandX64 AssemblyBuilderX64::f64(double value)
     return OperandX64(SizeX64::qword, noreg, 1, rip, offset);
 }
 
+OperandX64 AssemblyBuilderX64::memoizeData(const void* value, size_t size, size_t align, SizeX64 opsize)
+{
+    uint64_t hash = hashRange(static_cast<const char*>(value), size);
+
+    // ~0ull is the empty-slot sentinel of the cache; on the rare hash that lands there we just skip deduplication.
+    bool cacheable = hash != ~0ull;
+
+    if (cacheable)
+    {
+        if (uint64_t* prev = constCacheVec.find(hash))
+        {
+            int32_t offset = int32_t(uint32_t(*prev));
+            uint32_t prevSize = uint32_t(*prev >> 32);
+
+            // Only compare when the widths match, so a same-hash collision across sizes can never over-read a smaller
+            // slot. The offset is measured from the end of 'data', which stays stable across the backward fill, and a
+            // byte compare rules out a content collision so two distinct constants can never alias one slot.
+            if (prevSize == size && memcmp(&data[size_t(int64_t(data.size()) + offset)], value, size) == 0)
+                return OperandX64(opsize, noreg, 1, rip, offset);
+        }
+    }
+
+    size_t pos = allocateData(size, align);
+    memcpy(&data[pos], value, size);
+    int32_t offset = int32_t(pos - data.size());
+
+    if (cacheable)
+        constCacheVec[hash] = uint64_t(uint32_t(offset)) | (uint64_t(size) << 32);
+
+    return OperandX64(opsize, noreg, 1, rip, offset);
+}
+
 OperandX64 AssemblyBuilderX64::u32x4(uint32_t x, uint32_t y, uint32_t z, uint32_t w)
 {
-    size_t pos = allocateData(16, 16);
-    writeu32(&data[pos], x);
-    writeu32(&data[pos + 4], y);
-    writeu32(&data[pos + 8], z);
-    writeu32(&data[pos + 12], w);
-    return OperandX64(SizeX64::xmmword, noreg, 1, rip, int32_t(pos - data.size()));
+    uint8_t blob[16];
+    writeu32(&blob[0], x);
+    writeu32(&blob[4], y);
+    writeu32(&blob[8], z);
+    writeu32(&blob[12], w);
+    return memoizeData(blob, 16, 16, SizeX64::xmmword);
 }
 
 OperandX64 AssemblyBuilderX64::u32x8(
     uint32_t x0, uint32_t y0, uint32_t z0, uint32_t w0, uint32_t x1, uint32_t y1, uint32_t z1, uint32_t w1)
 {
-    size_t pos = allocateData(32, 32);
-    writeu32(&data[pos + 0], x0);
-    writeu32(&data[pos + 4], y0);
-    writeu32(&data[pos + 8], z0);
-    writeu32(&data[pos + 12], w0);
-    writeu32(&data[pos + 16], x1);
-    writeu32(&data[pos + 20], y1);
-    writeu32(&data[pos + 24], z1);
-    writeu32(&data[pos + 28], w1);
-    return OperandX64(SizeX64::ymmword, noreg, 1, rip, int32_t(pos - data.size()));
+    uint8_t blob[32];
+    writeu32(&blob[0], x0);
+    writeu32(&blob[4], y0);
+    writeu32(&blob[8], z0);
+    writeu32(&blob[12], w0);
+    writeu32(&blob[16], x1);
+    writeu32(&blob[20], y1);
+    writeu32(&blob[24], z1);
+    writeu32(&blob[28], w1);
+    return memoizeData(blob, 32, 32, SizeX64::ymmword);
 }
 
 OperandX64 AssemblyBuilderX64::f32x4(float x, float y, float z, float w)
 {
-    size_t pos = allocateData(16, 16);
-    writef32(&data[pos], x);
-    writef32(&data[pos + 4], y);
-    writef32(&data[pos + 8], z);
-    writef32(&data[pos + 12], w);
-    return OperandX64(SizeX64::xmmword, noreg, 1, rip, int32_t(pos - data.size()));
+    uint8_t blob[16];
+    writef32(&blob[0], x);
+    writef32(&blob[4], y);
+    writef32(&blob[8], z);
+    writef32(&blob[12], w);
+    return memoizeData(blob, 16, 16, SizeX64::xmmword);
 }
 
 OperandX64 AssemblyBuilderX64::f64x2(double x, double y)
 {
-    size_t pos = allocateData(16, 16);
-    writef64(&data[pos], x);
-    writef64(&data[pos + 8], y);
-    return OperandX64(SizeX64::xmmword, noreg, 1, rip, int32_t(pos - data.size()));
+    uint8_t blob[16];
+    writef64(&blob[0], x);
+    writef64(&blob[8], y);
+    return memoizeData(blob, 16, 16, SizeX64::xmmword);
 }
 
 OperandX64 AssemblyBuilderX64::bytes(const void* ptr, size_t size, size_t align)
