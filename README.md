@@ -23,11 +23,13 @@ There is one underlying value. It carries either four 32 bit lanes (128 bits) or
 
 The element type lives in the library name rather than in the runtime value, in the same spirit as the WebAssembly `v128` type. This keeps the value small and keeps the native type guards simple, because there is a single runtime tag to check rather than one per element type and width. `type` and `typeof` both return the string `"simd"` for every vector value, since the element type is a matter of interpretation rather than identity.
 
+The width, by contrast, is visible to the type checker. There are two static types, `simd` for the 128 bit libraries `u32x4` and `f32x4`, and `simd256` for the 256 bit libraries `u32x8` and `f32x8`. The two are distinct, so the checker reports an error if a value of one width is passed to an operation of the other, even though both share the one runtime tag. The element type within a width stays unchecked on purpose, so `u32x4` and `f32x4` share `simd`, which is what makes the free reinterpretation between integer and float views typecheck.
+
 A direct consequence of the shared representation is that reinterpreting the bits of a value costs nothing. Viewing the integer result of a mix step as floats means calling the operation from the float library on the same value, with no conversion instruction and no copy. There is no separate reinterpret function because none is required. For example, `f32x4.add` applied to a value built with `u32x4.splat(0x3f800000)`, the bit pattern of `1.0`, produces the bit pattern of `2.0`.
 
 Reinterpreting is distinct from converting. `u32x4.tofloat` performs a real numeric conversion of each integer lane to the nearest float, and `f32x4.toint` performs a real truncating conversion in the other direction. These emit hardware convert instructions. `u32x4.tofloat` applied to `u32x4.splat(5)` yields the float `5.0`, not the value `5` reinterpreted as a float.
 
-Values are register resident. In a straight line or unrolled body the compiler holds the value in a vector register across every operation and never allocates. A value only becomes a 32 byte heap object when it must outlive the register file, for example when it is captured by a closure or stored where the garbage collector can reach it. The single case where a per iteration allocation can still appear is a loop that keeps a vector live across the back edge, such as a splatted constant hoisted out of the loop, so the fastest kernels keep their hot section unrolled. That is how high performance cryptography is written in any case.
+Values are register resident. In a straight line or unrolled body the compiler holds the value in a vector register across every operation and never allocates. A value only becomes a 32 byte heap object when it must outlive the register file, for example when it is captured by a closure or stored where the garbage collector can reach it. A vector that is carried across a loop back edge, such as an accumulator or a hoisted constant, keeps a single box for the whole loop and reuses it in place, so it does not allocate per iteration; the cost that remains is storing the lanes to that box and reloading them across the edge, the same round trip a loop carried number makes through its stack slot. A value that genuinely escapes on every iteration, for instance one stored into a table inside the loop, still allocates each time. The fastest kernels keep the hot section unrolled so the carried value stays purely in a register, which is how high performance cryptography is written in any case.
 
 Two values are equal when their lane bits are identical. Equality, `rawequal`, and table key lookup all compare the full lane payload, so a vector computed twice from the same inputs is equal to its twin even though it is a separate heap object, the way `number` and the existing `vector` type behave rather than comparing by reference. The comparison is bitwise, which only matters at the edges: in float lanes a negative zero and a positive zero are not equal because their bits differ, and two NaN lanes are equal when their bits match. Since the value carries no element type, a bitwise compare is the only definition that is well formed for both the integer and the float view.
 
@@ -59,6 +61,13 @@ function u32x4.extract(v: simd, i: number): number
 ```
 
 Returns lane `i` as an unsigned 32 bit integer, with `i` in `0 .. 3` for `u32x4` and `0 .. 7` for `u32x8`.
+
+```
+function u32x4.unpack(v: simd): (number, number, number, number)
+function u32x8.unpack(v: simd256): (number, number, number, number, number, number, number, number)
+```
+
+Returns every lane at once as unsigned 32 bit integers, four from a 128 bit value and eight from a 256 bit value. This is the inverse of `create` and avoids calling `extract` once per lane.
 
 ```
 function u32x4.add(a: simd, b: simd): simd
@@ -97,6 +106,31 @@ function u32x4.tofloat(v: simd): simd
 
 Converts each integer lane to the nearest 32 bit float. The result is used through the matching float library, `f32x4` or `f32x8`.
 
+```
+function u32x4.eq(a: simd, b: simd): simd
+function u32x4.lt(a: simd, b: simd): simd
+function u32x4.gt(a: simd, b: simd): simd
+```
+
+Lane wise comparison as unsigned 32 bit integers. Each lane of the result is all ones (`0xFFFFFFFF`) where the comparison holds and all zeros where it does not, which is the mask shape that `select` consumes. `eq` tests equality, `lt` and `gt` test unsigned ordering.
+
+```
+function u32x4.select(mask: simd, a: simd, b: simd): simd
+```
+
+Lane wise blend: each result lane takes the bits of `a` where the corresponding `mask` lane is set and the bits of `b` where it is clear. The mask is normally produced by a comparison, so `select(u32x4.lt(a, b), a, b)` is a lane wise minimum, but the blend is purely bitwise and works with any mask.
+
+```
+function u32x4.sum(v: simd): number
+function u32x4.hmin(v: simd): number
+function u32x4.hmax(v: simd): number
+function u32x4.hband(v: simd): number
+function u32x4.hbor(v: simd): number
+function u32x4.hbxor(v: simd): number
+```
+
+Horizontal reductions: these collapse all lanes of one value to a single `number` rather than returning a vector. `sum` adds the lanes, wrapping to 32 bits; `hmin` and `hmax` take the unsigned minimum and maximum; `hband`, `hbor`, and `hbxor` fold the lanes with bitwise and, or, and exclusive or. The `h` prefix on the bitwise and ordering reductions keeps them distinct from the lane wise `band` and `min` style operations. A reduction is most useful at the end of a vectorized loop, for example `u32x4.hbxor` to finish a checksum or `u32x4.hbor(u32x4.eq(a, b)) ~= 0` to test whether any lane matched. All six are provided at both widths.
+
 ### Float lanes: `f32x4` and `f32x8`
 
 ```
@@ -127,6 +161,20 @@ function f32x4.toint(v: simd): simd
 
 Converts each float lane to a 32 bit integer by truncation toward zero, with saturation: a lane outside the signed 32 bit range clamps to the nearest end, and a NaN lane becomes zero, identically on every platform. The result is used through the matching integer library.
 
+```
+function f32x4.unpack(v: simd): (number, number, number, number)
+function f32x8.unpack(v: simd256): (number, number, number, number, number, number, number, number)
+function f32x4.eq(a: simd, b: simd): simd
+function f32x4.lt(a: simd, b: simd): simd
+function f32x4.gt(a: simd, b: simd): simd
+function f32x4.select(mask: simd, a: simd, b: simd): simd
+function f32x4.sum(v: simd): number
+function f32x4.hmin(v: simd): number
+function f32x4.hmax(v: simd): number
+```
+
+The float counterparts of the integer lane accessor, comparisons, blend, and reductions. `unpack` returns the lanes as floats. The comparisons are ordered float compares that produce the same all ones or all zeros mask, and `select` blends bitwise, exactly as in the integer library. `sum` adds the lanes in order as 32 bit floats, and `hmin` and `hmax` take the floating point minimum and maximum across the lanes. The integer only `hband`, `hbor`, and `hbxor` have no float form.
+
 ### Buffers
 
 The `buffer` library reads and writes whole vectors to contiguous bytes, so vectors stream to and from memory without going lane by lane.
@@ -134,11 +182,18 @@ The `buffer` library reads and writes whole vectors to contiguous bytes, so vect
 ```
 function buffer.readu32x4(b: buffer, offset: number): simd
 function buffer.writeu32x4(b: buffer, offset: number, value: simd): ()
-function buffer.readu32x8(b: buffer, offset: number): simd
-function buffer.writeu32x8(b: buffer, offset: number, value: simd): ()
+function buffer.readu32x8(b: buffer, offset: number): simd256
+function buffer.writeu32x8(b: buffer, offset: number, value: simd256): ()
 ```
 
 A 128 bit access moves 16 bytes and a 256 bit access moves 32 bytes. The same bytes can be read back through either the integer or the float library, since the element type is chosen by the caller.
+
+```
+function buffer.transpose(target: buffer, targetOffset: number, source: buffer, sourceOffset: number, rows: number, columns: number): ()
+function buffer.transposexor(target: buffer, targetOffset: number, data: buffer, dataOffset: number, source: buffer, sourceOffset: number, rows: number, columns: number): ()
+```
+
+`transpose` reads a `rows` by `columns` matrix of 32 bit words from `source` and writes its `columns` by `rows` transpose to `target`. On x64 with AVX2 it works in eight by eight register tiles and falls back to a scalar path otherwise. `transposexor` does the same transpose of `source` and exclusive ors it with the `data` matrix on the way out, so `target` becomes `transpose(source) ~ data` in one pass, which is the shape a transposed keystream or bitsliced layout wants when it is combined with a message block. All offsets must be multiples of four, and `target` must not overlap the inputs.
 
 ## Native code generation
 
@@ -183,9 +238,9 @@ Operations are library functions rather than operators, so expressions are more 
 
 The 256 bit path depends on AVX2 on x64. On a processor without it those operations run in the interpreter, so portable code that must be fast on every machine should prefer the 128 bit libraries, which rely only on SSE2 and NEON and are native everywhere Luau runs natively.
 
-A vector that stays live across a loop back edge, such as a constant splatted once and reused, can be boxed once per iteration. The way to avoid this is to keep the hot section unrolled, which also tends to be the faster shape for other reasons.
+A vector carried across a loop back edge no longer allocates per iteration, but it does still round trip its lanes through its box on every iteration, the same way a loop carried number round trips through its stack slot. Keeping the hot section unrolled removes that round trip by holding the value purely in a register, which also tends to be the faster shape for other reasons.
 
-`type` cannot distinguish element type or width, and neither the type checker nor the runtime stops you mixing the namespaces. Passing a 128 bit value to a 256 bit operation silently treats the missing upper lanes as zero instead of raising an error, and reading an integer vector through the float library reinterprets its bits, which is the intended free reinterpretation but is indistinguishable from a mistake. The type checker does see `simd` as a distinct type, so it will catch assigning a vector to a `number` or a `string`, but every namespace shares that one type, so it cannot catch a width or element mismatch between them. The interpretation is the caller's responsibility, the same trade made by `v128` in WebAssembly.
+At runtime `type` cannot distinguish element type or width, since every vector shares one tag, and the runtime does not stop you mixing the namespaces. The type checker is stronger: it uses the two distinct static types `simd` and `simd256`, so passing a 128 bit value to a 256 bit operation, or the reverse, is a type error rather than a silent treatment of the missing lanes. What it still cannot catch is an element mismatch within one width, because `u32x4` and `f32x4` deliberately share `simd` so that reading an integer vector through the float library is the intended free reinterpretation. That reinterpretation is indistinguishable from a mistake, so the choice of element view within a width remains the caller's responsibility, the same trade made by `v128` in WebAssembly.
 
 Full speed depends on compiling at optimization level 2. At level 1 nested call arguments fall back to a slower path with no warning, which can surprise someone benchmarking an unoptimized build.
 
