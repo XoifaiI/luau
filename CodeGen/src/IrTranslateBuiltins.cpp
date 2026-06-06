@@ -2006,6 +2006,25 @@ static BuiltinImplResult translateBuiltinSimdFSplat(IrBuilder& build, IrCmd cmd,
     return {BuiltinImplType::Full, 1};
 }
 
+// Horizontal reduce: load a SIMD value, fold its lanes to a scalar double (the reduce IrCmd produces a Double),
+// then store it as a number. `load` is LOAD_SIMD (4-wide) or LOAD_SIMD256 (8-wide); `cmd` is the reduce IrCmd.
+static BuiltinImplResult translateBuiltinSimdReduce(IrBuilder& build, IrCmd cmd, IrCmd load, int nparams, int ra, int arg, int nresults, int pcpos)
+{
+    if (nparams < 1 || nresults > 1)
+        return {BuiltinImplType::None, -1};
+
+    build.loadAndCheckTag(build.vmReg(arg), LUA_TSIMD, build.vmExit(pcpos));
+
+    IrOp a = build.inst(load, build.vmReg(arg));
+    IrOp result = build.inst(cmd, a);
+    build.inst(IrCmd::STORE_DOUBLE, build.vmReg(ra), result);
+
+    if (ra != arg)
+        build.inst(IrCmd::STORE_TAG, build.vmReg(ra), build.constTag(LUA_TNUMBER));
+
+    return {BuiltinImplType::Full, 1};
+}
+
 BuiltinImplResult translateBuiltin(
     IrBuilder& build,
     int bfid,
@@ -2311,6 +2330,18 @@ BuiltinImplResult translateBuiltin(
         return translateBuiltinSimdFSplat(build, IrCmd::FSPLAT_SIMD, IrCmd::STORE_SIMD, nparams, ra, arg, nresults, pcpos);
     case LBF_SIMD_SHUFFLE:
         return translateBuiltinSimdShuffle(build, nparams, ra, arg, args, nresults, pcpos);
+    case LBF_SIMD_SUM:
+        return translateBuiltinSimdReduce(build, IrCmd::SUM_SIMD, IrCmd::LOAD_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_HMIN:
+        return translateBuiltinSimdReduce(build, IrCmd::HMIN_SIMD, IrCmd::LOAD_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_HMAX:
+        return translateBuiltinSimdReduce(build, IrCmd::HMAX_SIMD, IrCmd::LOAD_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_HBAND:
+        return translateBuiltinSimdReduce(build, IrCmd::HBAND_SIMD, IrCmd::LOAD_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_HBOR:
+        return translateBuiltinSimdReduce(build, IrCmd::HBOR_SIMD, IrCmd::LOAD_SIMD, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD_HBXOR:
+        return translateBuiltinSimdReduce(build, IrCmd::HBXOR_SIMD, IrCmd::LOAD_SIMD, nparams, ra, arg, nresults, pcpos);
     case LBF_BUFFER_READSIMD256:
         return translateBuiltinBufferReadSimd256(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_BUFFER_WRITESIMD256:
@@ -2375,6 +2406,18 @@ BuiltinImplResult translateBuiltin(
         return translateBuiltinSimdSplat(build, IrCmd::SPLAT_SIMD256, IrCmd::STORE_SIMD256, nparams, ra, arg, nresults, pcpos);
     case LBF_SIMD256_FSPLAT:
         return translateBuiltinSimdFSplat(build, IrCmd::FSPLAT_SIMD256, IrCmd::STORE_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_SUM:
+        return translateBuiltinSimdReduce(build, IrCmd::SUM_SIMD256, IrCmd::LOAD_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_HMIN:
+        return translateBuiltinSimdReduce(build, IrCmd::HMIN_SIMD256, IrCmd::LOAD_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_HMAX:
+        return translateBuiltinSimdReduce(build, IrCmd::HMAX_SIMD256, IrCmd::LOAD_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_HBAND:
+        return translateBuiltinSimdReduce(build, IrCmd::HBAND_SIMD256, IrCmd::LOAD_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_HBOR:
+        return translateBuiltinSimdReduce(build, IrCmd::HBOR_SIMD256, IrCmd::LOAD_SIMD256, nparams, ra, arg, nresults, pcpos);
+    case LBF_SIMD256_HBXOR:
+        return translateBuiltinSimdReduce(build, IrCmd::HBXOR_SIMD256, IrCmd::LOAD_SIMD256, nparams, ra, arg, nresults, pcpos);
     case LBF_VECTOR_MAGNITUDE:
         return translateBuiltinVectorMagnitude(build, nparams, ra, arg, args, arg3, nresults, pcpos);
     case LBF_VECTOR_NORMALIZE:

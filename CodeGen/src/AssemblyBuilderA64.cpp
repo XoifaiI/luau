@@ -1182,6 +1182,45 @@ void AssemblyBuilderA64::mul_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 s
     commit();
 }
 
+void AssemblyBuilderA64::umin_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "umin", dst.index, src1.index, src2.index);
+
+    //                Q U  ESz    Rm    Opcode Rn    Rd     (UMIN vector: U=1, opcode=01101)
+    uint32_t op = 0b0'1'1'01110'10'1'00000'01101'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::umax_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);
+
+    if (logText)
+        logAppend(" %-12sv%d.4s,v%d.4s,v%d.4s\n", "umax", dst.index, src1.index, src2.index);
+
+    //                Q U  ESz    Rm    Opcode Rn    Rd     (UMAX vector: U=1, opcode=01100)
+    uint32_t op = 0b0'1'1'01110'10'1'00000'01100'1'00000'00000;
+    place(dst.index | (src1.index << 5) | (src2.index << 16) | op);
+    commit();
+}
+
+void AssemblyBuilderA64::ext_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2, uint8_t index)
+{
+    CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q && index < 16);
+
+    if (logText)
+        logAppend(" %-12sv%d.16b,v%d.16b,v%d.16b,#%d\n", "ext", dst.index, src1.index, src2.index, index);
+
+    //                Q       op2  Rm    imm4  Rn    Rd
+    uint32_t op = 0b0'1'101110'00'0'00000'0'0000'0'00000'00000;
+    place(dst.index | (src1.index << 5) | (uint32_t(index) << 11) | (src2.index << 16) | op);
+    commit();
+}
+
 void AssemblyBuilderA64::and_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2)
 {
     CODEGEN_ASSERT(dst.kind == KindA64::q && src1.kind == KindA64::q && src2.kind == KindA64::q);

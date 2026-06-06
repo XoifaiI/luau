@@ -601,6 +601,18 @@ const char* getCmdName(IrCmd cmd)
         return "SPLAT_SIMD";
     case IrCmd::FSPLAT_SIMD:
         return "FSPLAT_SIMD";
+    case IrCmd::SUM_SIMD:
+        return "SUM_SIMD";
+    case IrCmd::HMIN_SIMD:
+        return "HMIN_SIMD";
+    case IrCmd::HMAX_SIMD:
+        return "HMAX_SIMD";
+    case IrCmd::HBAND_SIMD:
+        return "HBAND_SIMD";
+    case IrCmd::HBOR_SIMD:
+        return "HBOR_SIMD";
+    case IrCmd::HBXOR_SIMD:
+        return "HBXOR_SIMD";
     case IrCmd::BUFFER_READSIMD256:
         return "BUFFER_READSIMD256";
     case IrCmd::BUFFER_WRITESIMD256:
@@ -669,6 +681,18 @@ const char* getCmdName(IrCmd cmd)
         return "SPLAT_SIMD256";
     case IrCmd::FSPLAT_SIMD256:
         return "FSPLAT_SIMD256";
+    case IrCmd::SUM_SIMD256:
+        return "SUM_SIMD256";
+    case IrCmd::HMIN_SIMD256:
+        return "HMIN_SIMD256";
+    case IrCmd::HMAX_SIMD256:
+        return "HMAX_SIMD256";
+    case IrCmd::HBAND_SIMD256:
+        return "HBAND_SIMD256";
+    case IrCmd::HBOR_SIMD256:
+        return "HBOR_SIMD256";
+    case IrCmd::HBXOR_SIMD256:
+        return "HBXOR_SIMD256";
     case IrCmd::JUMP_CMP_PROTOID:
         return "JUMP_CMP_PROTOID";
     }

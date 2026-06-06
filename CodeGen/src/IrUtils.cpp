@@ -292,6 +292,19 @@ IrValueKind getCmdValueKind(IrCmd cmd)
     case IrCmd::INT64_TO_NUM:
     case IrCmd::INT_TO_NUM:
     case IrCmd::UINT_TO_NUM:
+    // horizontal SIMD reductions consume a Simd/Simd256 value but produce a scalar Double
+    case IrCmd::SUM_SIMD:
+    case IrCmd::HMIN_SIMD:
+    case IrCmd::HMAX_SIMD:
+    case IrCmd::HBAND_SIMD:
+    case IrCmd::HBOR_SIMD:
+    case IrCmd::HBXOR_SIMD:
+    case IrCmd::SUM_SIMD256:
+    case IrCmd::HMIN_SIMD256:
+    case IrCmd::HMAX_SIMD256:
+    case IrCmd::HBAND_SIMD256:
+    case IrCmd::HBOR_SIMD256:
+    case IrCmd::HBXOR_SIMD256:
         return IrValueKind::Double;
     case IrCmd::UINT_TO_FLOAT:
         return IrValueKind::Float;

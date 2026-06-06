@@ -189,6 +189,9 @@ public:
     void add_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
     void sub_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
     void mul_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void umin_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void umax_4s(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
+    void ext_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2, uint8_t index);
     void and_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
     void orr_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);
     void eor_16b(RegisterA64 dst, RegisterA64 src1, RegisterA64 src2);

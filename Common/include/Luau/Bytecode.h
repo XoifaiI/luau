@@ -804,6 +804,20 @@ enum LuauBuiltinFunction
     LBF_SIMD_FSPLAT,
     LBF_SIMD256_SPLAT,
     LBF_SIMD256_FSPLAT,
+
+    // horizontal integer reductions (SIMD -> number). float reduces (fsum/fhmin/fhmax) intentionally stay lib-only.
+    LBF_SIMD_SUM,
+    LBF_SIMD_HMIN,
+    LBF_SIMD_HMAX,
+    LBF_SIMD_HBAND,
+    LBF_SIMD_HBOR,
+    LBF_SIMD_HBXOR,
+    LBF_SIMD256_SUM,
+    LBF_SIMD256_HMIN,
+    LBF_SIMD256_HMAX,
+    LBF_SIMD256_HBAND,
+    LBF_SIMD256_HBOR,
+    LBF_SIMD256_HBXOR,
 };
 
 // Capture type, used in LOP_CAPTURE

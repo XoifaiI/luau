@@ -3926,6 +3926,22 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             break;
         }
 
+        if (n == 8 || n == 24)
+        {
+            // rotl by 8/24 is a per-lane byte rotation: one tbl byte-permute instead of shl+sri (mirrors the x64
+            // vpshufb fast path). Index bytes are dst[i]=src[idx[i]] (same as vpshufb), so they equal the x64 masks.
+            inst.regA64 = regs.allocReg(KindA64::q, index);
+            static const uint8_t idx8[16] = {3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14};
+            static const uint8_t idx24[16] = {1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12};
+            const uint8_t* idx = (n == 8) ? idx8 : idx24;
+            RegisterA64 idxReg = regs.allocTemp(KindA64::q);
+            RegisterA64 addr = regs.allocTemp(KindA64::x);
+            build.adr(addr, idx, 16);
+            build.ldr(idxReg, addr);
+            build.tbl_16b(inst.regA64, regOp(OP_A(inst)), idxReg);
+            break;
+        }
+
         // a fresh destination keeps the source intact: shl writes it, then sri reads the source again
         inst.regA64 = regs.allocReg(KindA64::q, index);
         RegisterA64 src = regOp(OP_A(inst));
@@ -3939,6 +3955,76 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             build.shl_4s(inst.regA64, src, n);
             build.sri_4s(inst.regA64, src, uint8_t(32 - n));
         }
+        break;
+    }
+    case IrCmd::SUM_SIMD:
+    case IrCmd::HMIN_SIMD:
+    case IrCmd::HMAX_SIMD:
+    case IrCmd::HBAND_SIMD:
+    case IrCmd::HBOR_SIMD:
+    case IrCmd::HBXOR_SIMD:
+    case IrCmd::SUM_SIMD256:
+    case IrCmd::HMIN_SIMD256:
+    case IrCmd::HMAX_SIMD256:
+    case IrCmd::HBAND_SIMD256:
+    case IrCmd::HBOR_SIMD256:
+    case IrCmd::HBXOR_SIMD256:
+    {
+        // horizontal integer reduce: fold lanes pairwise via byte-ext rotates (op is associative+commutative), then
+        // extract lane 0 and convert UNSIGNED u32 -> double. 256-bit first folds the two 128-bit halves together.
+        bool is256 = inst.cmd == IrCmd::SUM_SIMD256 || inst.cmd == IrCmd::HMIN_SIMD256 || inst.cmd == IrCmd::HMAX_SIMD256 ||
+                     inst.cmd == IrCmd::HBAND_SIMD256 || inst.cmd == IrCmd::HBOR_SIMD256 || inst.cmd == IrCmd::HBXOR_SIMD256;
+
+        inst.regA64 = regs.allocReg(KindA64::d, index);
+        RegisterA64 t = regs.allocTemp(KindA64::q);
+        RegisterA64 t2 = regs.allocTemp(KindA64::q);
+
+        auto combine = [&](RegisterA64 d, RegisterA64 a, RegisterA64 b)
+        {
+            switch (inst.cmd)
+            {
+            case IrCmd::SUM_SIMD:
+            case IrCmd::SUM_SIMD256:
+                build.add_4s(d, a, b);
+                break;
+            case IrCmd::HMIN_SIMD:
+            case IrCmd::HMIN_SIMD256:
+                build.umin_4s(d, a, b);
+                break;
+            case IrCmd::HMAX_SIMD:
+            case IrCmd::HMAX_SIMD256:
+                build.umax_4s(d, a, b);
+                break;
+            case IrCmd::HBAND_SIMD:
+            case IrCmd::HBAND_SIMD256:
+                build.and_16b(d, a, b);
+                break;
+            case IrCmd::HBOR_SIMD:
+            case IrCmd::HBOR_SIMD256:
+                build.orr_16b(d, a, b);
+                break;
+            case IrCmd::HBXOR_SIMD:
+            case IrCmd::HBXOR_SIMD256:
+                build.eor_16b(d, a, b);
+                break;
+            default:
+                CODEGEN_ASSERT(!"unexpected reduce cmd");
+            }
+        };
+
+        if (is256)
+            combine(t, regOp(OP_A(inst)), regOpHi(OP_A(inst))); // fold the two 128-bit halves -> 4 lanes
+        else
+            build.mov(t, regOp(OP_A(inst)));
+
+        build.ext_16b(t2, t, t, 8); // [l2,l3,l0,l1]
+        combine(t, t, t2);
+        build.ext_16b(t2, t, t, 4); // bring lane1 next to lane0
+        combine(t, t, t2);          // lane0 = reduction of all lanes
+
+        RegisterA64 w = regs.allocTemp(KindA64::w);
+        build.umov_4s(w, t, 0);
+        build.ucvtf(inst.regA64, w);
         break;
     }
     case IrCmd::FADD_SIMD:
@@ -4307,6 +4393,19 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         {
             build.rev32_8h(inst.regA64, aLo);
             build.rev32_8h(hi, aHi);
+        }
+        else if (n == 8 || n == 24)
+        {
+            // per-lane byte rotation via tbl on each 128-bit half (mirrors the 128-bit case + the x64 vpshufb path)
+            static const uint8_t idx8[16] = {3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14};
+            static const uint8_t idx24[16] = {1, 2, 3, 0, 5, 6, 7, 4, 9, 10, 11, 8, 13, 14, 15, 12};
+            const uint8_t* idx = (n == 8) ? idx8 : idx24;
+            RegisterA64 idxReg = regs.allocTemp(KindA64::q);
+            RegisterA64 addr = regs.allocTemp(KindA64::x);
+            build.adr(addr, idx, 16);
+            build.ldr(idxReg, addr);
+            build.tbl_16b(inst.regA64, aLo, idxReg);
+            build.tbl_16b(hi, aHi, idxReg);
         }
         else
         {

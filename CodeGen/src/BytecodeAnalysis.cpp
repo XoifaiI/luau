@@ -606,6 +606,20 @@ static void applyBuiltinCall(LuauBuiltinFunction bfid, BytecodeTypes& types)
     case LBF_SIMD256_FSPLAT:
         types.result = LBC_TYPE_ANY;
         break;
+    case LBF_SIMD_SUM:
+    case LBF_SIMD_HMIN:
+    case LBF_SIMD_HMAX:
+    case LBF_SIMD_HBAND:
+    case LBF_SIMD_HBOR:
+    case LBF_SIMD_HBXOR:
+    case LBF_SIMD256_SUM:
+    case LBF_SIMD256_HMIN:
+    case LBF_SIMD256_HMAX:
+    case LBF_SIMD256_HBAND:
+    case LBF_SIMD256_HBOR:
+    case LBF_SIMD256_HBXOR:
+        types.result = LBC_TYPE_NUMBER;
+        break;
     case LBF_TABLE_INSERT:
         types.result = LBC_TYPE_NIL;
         types.a = LBC_TYPE_TABLE;

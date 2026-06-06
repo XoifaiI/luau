@@ -1091,6 +1091,20 @@ void AssemblyBuilderX64::vpextrd(RegisterX64 dst, RegisterX64 src, uint8_t offse
     commit();
 }
 
+void AssemblyBuilderX64::vextracti128(RegisterX64 dst, RegisterX64 src, uint8_t offset)
+{
+    // VEX.256.66.0F3A.W0 39 /r ib: src (ymm) is the reg operand (also supplies VEX.L=1), dst (xmm/m128) is r/m
+    if (logText)
+        log("vextracti128", dst, src, offset);
+
+    placeVex(src, noreg, dst, false, AVX_0F3A, AVX_66);
+    place(0x39);
+    placeRegAndModRegMem(src, dst, /*extraCodeBytes=*/1);
+    placeImm8(offset);
+
+    commit();
+}
+
 void AssemblyBuilderX64::vpaddd(OperandX64 dst, OperandX64 src1, OperandX64 src2)
 {
     placeAvx("vpaddd", dst, src1, src2, 0xfe, false, AVX_0F, AVX_66);
@@ -1104,6 +1118,16 @@ void AssemblyBuilderX64::vpsubd(OperandX64 dst, OperandX64 src1, OperandX64 src2
 void AssemblyBuilderX64::vpmulld(OperandX64 dst, OperandX64 src1, OperandX64 src2)
 {
     placeAvx("vpmulld", dst, src1, src2, 0x40, false, AVX_0F38, AVX_66);
+}
+
+void AssemblyBuilderX64::vpminud(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpminud", dst, src1, src2, 0x3b, false, AVX_0F38, AVX_66);
+}
+
+void AssemblyBuilderX64::vpmaxud(OperandX64 dst, OperandX64 src1, OperandX64 src2)
+{
+    placeAvx("vpmaxud", dst, src1, src2, 0x3f, false, AVX_0F38, AVX_66);
 }
 
 void AssemblyBuilderX64::vpand(OperandX64 dst, OperandX64 src1, OperandX64 src2)

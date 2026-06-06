@@ -1134,6 +1134,17 @@ enum class IrCmd : uint16_t
     SPLAT_SIMD,
     FSPLAT_SIMD,
 
+    // Horizontal integer reductions: consume a Simd value (A) and produce a Double scalar. These are the only
+    // SIMD-consuming ops whose result kind is Double. Integer-only because they are exact and associative, so an
+    // in-register fold is bit-identical to the lib's left-fold; the u32 result is converted UNSIGNED to double.
+    // (float fsum/fhmin/fhmax stay lib-only: fsum is not associative; float min/max NaN/-0 semantics vary by ISA.)
+    SUM_SIMD,
+    HMIN_SIMD,
+    HMAX_SIMD,
+    HBAND_SIMD,
+    HBOR_SIMD,
+    HBXOR_SIMD,
+
     // 256-bit (8-wide u32, AVX2 ymm) counterparts of the integer SIMD value ops. Same operand shapes as the
     // 128-bit forms; they produce/consume IrValueKind::Simd256 and lower to VEX.256 instructions.
     // SHUFFLE_SIMD256 applies the vpshufd selector within each 128-bit lane (per-block for a 2-block layout).
@@ -1171,6 +1182,14 @@ enum class IrCmd : uint16_t
     SELECT_SIMD256,
     SPLAT_SIMD256,
     FSPLAT_SIMD256,
+
+    // 256-bit horizontal integer reductions (consume Simd256, produce Double); see the 128-bit reduce note above.
+    SUM_SIMD256,
+    HMIN_SIMD256,
+    HMAX_SIMD256,
+    HBAND_SIMD256,
+    HBOR_SIMD256,
+    HBXOR_SIMD256,
 
     // Perform a conditional jump based on the result of Proto ID comparison
     // A: closure pointer

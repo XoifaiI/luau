@@ -3670,6 +3670,89 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
         break;
     }
 
+    // Horizontal integer reductions: fold the 4 u32 lanes pairwise (op is associative+commutative so lane order is
+    // irrelevant; integer is exact so this matches the lib's left-fold), then convert the u32 result UNSIGNED to
+    // double (vpextrd into a dword zero-extends the gpr, vcvtsi2sd from the qword form gives unsigned conversion).
+    case IrCmd::SUM_SIMD:
+    case IrCmd::HMIN_SIMD:
+    case IrCmd::HMAX_SIMD:
+    case IrCmd::HBAND_SIMD:
+    case IrCmd::HBOR_SIMD:
+    case IrCmd::HBXOR_SIMD:
+    {
+        inst.regX64 = regs.allocReg(SizeX64::xmmword, index);
+
+        ScopedRegX64 t{regs, SizeX64::xmmword};
+        ScopedRegX64 t2{regs, SizeX64::xmmword};
+        RegisterX64 src = regOp(OP_A(inst));
+
+        auto combine = [&](RegisterX64 d, RegisterX64 a, RegisterX64 b)
+        {
+            switch (inst.cmd)
+            {
+            case IrCmd::SUM_SIMD: build.vpaddd(d, a, b); break;
+            case IrCmd::HMIN_SIMD: build.vpminud(d, a, b); break;
+            case IrCmd::HMAX_SIMD: build.vpmaxud(d, a, b); break;
+            case IrCmd::HBAND_SIMD: build.vpand(d, a, b); break;
+            case IrCmd::HBOR_SIMD: build.vpor(d, a, b); break;
+            case IrCmd::HBXOR_SIMD: build.vpxor(d, a, b); break;
+            default: CODEGEN_ASSERT(!"unexpected reduce cmd");
+            }
+        };
+
+        build.vpshufd(t.reg, src, 0b01001110);    // [l2,l3,l0,l1]: pair lane0 with l2, lane1 with l3
+        combine(t.reg, t.reg, src);
+        build.vpshufd(t2.reg, t.reg, 0b10110001); // swap within each 64-bit half: pair lane0 with lane1
+        combine(t.reg, t.reg, t2.reg);            // lane0 = reduction of all 4
+
+        ScopedRegX64 g{regs, SizeX64::dword};
+        build.vpextrd(g.reg, t.reg, 0);
+        build.vcvtsi2sd(inst.regX64, inst.regX64, qwordReg(g.reg));
+        break;
+    }
+
+    // 256-bit horizontal reductions: fold the high 128 into the low 128 with the op, then the 4-lane fold above.
+    case IrCmd::SUM_SIMD256:
+    case IrCmd::HMIN_SIMD256:
+    case IrCmd::HMAX_SIMD256:
+    case IrCmd::HBAND_SIMD256:
+    case IrCmd::HBOR_SIMD256:
+    case IrCmd::HBXOR_SIMD256:
+    {
+        inst.regX64 = regs.allocReg(SizeX64::xmmword, index);
+
+        ScopedRegX64 t{regs, SizeX64::xmmword};
+        ScopedRegX64 t2{regs, SizeX64::xmmword};
+        RegisterX64 srcY = regOp(OP_A(inst));                          // ymm, 8 lanes
+        RegisterX64 srcLo = RegisterX64{SizeX64::xmmword, srcY.index}; // low 128 alias
+
+        auto combine = [&](RegisterX64 d, RegisterX64 a, RegisterX64 b)
+        {
+            switch (inst.cmd)
+            {
+            case IrCmd::SUM_SIMD256: build.vpaddd(d, a, b); break;
+            case IrCmd::HMIN_SIMD256: build.vpminud(d, a, b); break;
+            case IrCmd::HMAX_SIMD256: build.vpmaxud(d, a, b); break;
+            case IrCmd::HBAND_SIMD256: build.vpand(d, a, b); break;
+            case IrCmd::HBOR_SIMD256: build.vpor(d, a, b); break;
+            case IrCmd::HBXOR_SIMD256: build.vpxor(d, a, b); break;
+            default: CODEGEN_ASSERT(!"unexpected reduce cmd");
+            }
+        };
+
+        build.vextracti128(t.reg, srcY, 1); // t = lanes 4..7
+        combine(t.reg, t.reg, srcLo);       // fold high half into low -> 4 lanes
+        build.vpshufd(t2.reg, t.reg, 0b01001110);
+        combine(t.reg, t.reg, t2.reg);
+        build.vpshufd(t2.reg, t.reg, 0b10110001);
+        combine(t.reg, t.reg, t2.reg);
+
+        ScopedRegX64 g{regs, SizeX64::dword};
+        build.vpextrd(g.reg, t.reg, 0);
+        build.vcvtsi2sd(inst.regX64, inst.regX64, qwordReg(g.reg));
+        break;
+    }
+
     // 256-bit (8-wide, AVX2 ymm) value ops. Identical shapes to the 128-bit forms above; passing ymm-sized
     // registers makes the shared VEX encoders emit the .256 forms. vpshufd/the shuffle operate within each
     // 128-bit lane (per-block for a 2-block layout). ROTL here always uses shift+or (the vpshufb byte-rotate

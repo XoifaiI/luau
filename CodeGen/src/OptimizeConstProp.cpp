@@ -1663,6 +1663,18 @@ static void handleBuiltinEffects(ConstPropState& state, LuauBuiltinFunction bfid
     case LBF_SIMD256_FMA:
     case LBF_SIMD256_TOFLOAT:
     case LBF_SIMD256_TOINT:
+    case LBF_SIMD_SUM:
+    case LBF_SIMD_HMIN:
+    case LBF_SIMD_HMAX:
+    case LBF_SIMD_HBAND:
+    case LBF_SIMD_HBOR:
+    case LBF_SIMD_HBXOR:
+    case LBF_SIMD256_SUM:
+    case LBF_SIMD256_HMIN:
+    case LBF_SIMD256_HMAX:
+    case LBF_SIMD256_HBAND:
+    case LBF_SIMD256_HBOR:
+    case LBF_SIMD256_HBXOR:
         break;
     case LBF_BUFFER_WRITEU8:
     case LBF_BUFFER_WRITEU16:
@@ -2244,6 +2256,18 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
     case IrCmd::SELECT_SIMD256:
     case IrCmd::SPLAT_SIMD256:
     case IrCmd::FSPLAT_SIMD256:
+    case IrCmd::SUM_SIMD:
+    case IrCmd::HMIN_SIMD:
+    case IrCmd::HMAX_SIMD:
+    case IrCmd::HBAND_SIMD:
+    case IrCmd::HBOR_SIMD:
+    case IrCmd::HBXOR_SIMD:
+    case IrCmd::SUM_SIMD256:
+    case IrCmd::HMIN_SIMD256:
+    case IrCmd::HMAX_SIMD256:
+    case IrCmd::HBAND_SIMD256:
+    case IrCmd::HBOR_SIMD256:
+    case IrCmd::HBXOR_SIMD256:
         break;
     case IrCmd::STORE_TVALUE:
         // A compiler-emitted MOVE of a SIMD local lowers to LOAD_TVALUE Rsrc + STORE_TVALUE Rdst. When Rsrc is

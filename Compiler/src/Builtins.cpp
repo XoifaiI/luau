@@ -307,6 +307,18 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_LT;
         if (builtin.method == "gt")
             return LBF_SIMD_GT;
+        if (builtin.method == "sum")
+            return LBF_SIMD_SUM;
+        if (builtin.method == "hmin")
+            return LBF_SIMD_HMIN;
+        if (builtin.method == "hmax")
+            return LBF_SIMD_HMAX;
+        if (builtin.method == "hband")
+            return LBF_SIMD_HBAND;
+        if (builtin.method == "hbor")
+            return LBF_SIMD_HBOR;
+        if (builtin.method == "hbxor")
+            return LBF_SIMD_HBXOR;
     }
 
     if (builtin.object == "f32x4")
@@ -377,6 +389,18 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_LT;
         if (builtin.method == "gt")
             return LBF_SIMD256_GT;
+        if (builtin.method == "sum")
+            return LBF_SIMD256_SUM;
+        if (builtin.method == "hmin")
+            return LBF_SIMD256_HMIN;
+        if (builtin.method == "hmax")
+            return LBF_SIMD256_HMAX;
+        if (builtin.method == "hband")
+            return LBF_SIMD256_HBAND;
+        if (builtin.method == "hbor")
+            return LBF_SIMD256_HBOR;
+        if (builtin.method == "hbxor")
+            return LBF_SIMD256_HBXOR;
     }
 
     if (builtin.object == "f32x8")
@@ -473,6 +497,18 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD256_LT;
         if (builtin.method == "gt")
             return LBF_SIMD256_GT;
+        if (builtin.method == "sum")
+            return LBF_SIMD256_SUM;
+        if (builtin.method == "hmin")
+            return LBF_SIMD256_HMIN;
+        if (builtin.method == "hmax")
+            return LBF_SIMD256_HMAX;
+        if (builtin.method == "hband")
+            return LBF_SIMD256_HBAND;
+        if (builtin.method == "hbor")
+            return LBF_SIMD256_HBOR;
+        if (builtin.method == "hbxor")
+            return LBF_SIMD256_HBXOR;
     }
 
     if (builtin.object == "simd")
@@ -537,6 +573,18 @@ static int getBuiltinFunctionId(const Builtin& builtin, const CompileOptions& op
             return LBF_SIMD_LT;
         if (builtin.method == "gt")
             return LBF_SIMD_GT;
+        if (builtin.method == "sum")
+            return LBF_SIMD_SUM;
+        if (builtin.method == "hmin")
+            return LBF_SIMD_HMIN;
+        if (builtin.method == "hmax")
+            return LBF_SIMD_HMAX;
+        if (builtin.method == "hband")
+            return LBF_SIMD_HBAND;
+        if (builtin.method == "hbor")
+            return LBF_SIMD_HBOR;
+        if (builtin.method == "hbxor")
+            return LBF_SIMD_HBXOR;
     }
 
     if (builtin.object == "vector")
@@ -967,6 +1015,12 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD_TOINT:
     case LBF_SIMD_SPLAT:
     case LBF_SIMD_FSPLAT:
+    case LBF_SIMD_SUM:
+    case LBF_SIMD_HMIN:
+    case LBF_SIMD_HMAX:
+    case LBF_SIMD_HBAND:
+    case LBF_SIMD_HBOR:
+    case LBF_SIMD_HBXOR:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD_SHUFFLE:
         return {2, 1, BuiltinInfo::Flag_NoneSafe};
@@ -1007,6 +1061,12 @@ BuiltinInfo getBuiltinInfo(int bfid)
     case LBF_SIMD256_TOINT:
     case LBF_SIMD256_SPLAT:
     case LBF_SIMD256_FSPLAT:
+    case LBF_SIMD256_SUM:
+    case LBF_SIMD256_HMIN:
+    case LBF_SIMD256_HMAX:
+    case LBF_SIMD256_HBAND:
+    case LBF_SIMD256_HBOR:
+    case LBF_SIMD256_HBXOR:
         return {1, 1, BuiltinInfo::Flag_NoneSafe};
     case LBF_SIMD256_FMA:
     case LBF_SIMD256_SELECT:
