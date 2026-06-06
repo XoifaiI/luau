@@ -23,8 +23,6 @@ LUAU_FASTINTVARIABLE(LuauCodeGenReuseSlotLimit, 64)
 LUAU_FASTINTVARIABLE(LuauCodeGenReuseUdataTagLimit, 64)
 LUAU_FASTINTVARIABLE(LuauCodeGenLiveSlotReuseLimit, 8)
 LUAU_FASTFLAGVARIABLE(DebugLuauAbortingChecks)
-LUAU_FASTFLAGVARIABLE(LuauCodegenSetBlockEntryState3)
-LUAU_FASTFLAGVARIABLE(LuauCodegenPropagateTagsAcrossChains2)
 LUAU_FASTFLAGVARIABLE(LuauCodegenLinearSetupEntryState3)
 LUAU_FASTFLAGVARIABLE(LuauCodegenLoadPropagateOrigin)
 LUAU_FASTFLAGVARIABLE(LuauCodegenExtraTableOpts)
@@ -3744,27 +3742,22 @@ static void setupBlockEntryState(IrBuilder& build, IrFunction& function, IrBlock
             state.updateTag(build.vmReg(uint8_t(i)), *vmTag);
     }
 
-    if (FFlag::LuauCodegenPropagateTagsAcrossChains2)
-    {
-        propagateTagsFromPredecessors(
-            function,
-            block,
-            [&](size_t i)
-            {
-                return state.regs[i].tag;
-            },
-            [&](size_t i, uint8_t tag)
-            {
-                state.updateTag(build.vmReg(uint8_t(i)), tag);
-            }
-        );
-    }
+    propagateTagsFromPredecessors(
+        function,
+        block,
+        [&](size_t i)
+        {
+            return state.regs[i].tag;
+        },
+        [&](size_t i, uint8_t tag)
+        {
+            state.updateTag(build.vmReg(uint8_t(i)), tag);
+        }
+    );
 }
 
 static void saveBlockExitState(IrFunction& function, const IrBlock& block, ConstPropState& state)
 {
-    CODEGEN_ASSERT(FFlag::LuauCodegenPropagateTagsAcrossChains2);
-
     std::vector<uint8_t> tags;
     tags.reserve(state.maxReg + 1);
 
@@ -3806,8 +3799,7 @@ static void constPropInBlockChain(IrBuilder& build, std::vector<uint8_t>& visite
 
     state.clear();
 
-    if (FFlag::LuauCodegenSetBlockEntryState3)
-        setupBlockEntryState(build, function, *block, state);
+    setupBlockEntryState(build, function, *block, state);
 
     const uint32_t startSortkey = block->sortkey;
     uint32_t chainPos = 0;
@@ -3860,7 +3852,7 @@ static void constPropInBlockChain(IrBuilder& build, std::vector<uint8_t>& visite
 
         if (FFlag::LuauCodegenRecordAllBlockExitInfo)
             saveBlockExitState(function, *block, state);
-        else if (FFlag::LuauCodegenPropagateTagsAcrossChains2)
+        else
             lastBlock = block;
 
         block = nextBlock;
@@ -3868,7 +3860,7 @@ static void constPropInBlockChain(IrBuilder& build, std::vector<uint8_t>& visite
 
     if (!FFlag::LuauCodegenRecordAllBlockExitInfo)
     {
-        if (FFlag::LuauCodegenPropagateTagsAcrossChains2 && lastBlock)
+        if (lastBlock)
             saveBlockExitState(function, *lastBlock, state);
     }
 }
@@ -3974,7 +3966,7 @@ static void tryCreateLinearBlock(IrBuilder& build, std::vector<uint8_t>& visited
     // Initialize state with the knowledge of our current block
     state.clear();
 
-    if (FFlag::LuauCodegenSetBlockEntryState3 && FFlag::LuauCodegenLinearSetupEntryState3)
+    if (FFlag::LuauCodegenLinearSetupEntryState3)
         setupBlockEntryState(build, function, startingBlock, state);
 
     constPropInBlock(build, startingBlock, state);
@@ -4078,8 +4070,7 @@ void constPropInBlockChains(IrBuilder& build)
 
     std::vector<uint8_t> visited(function.blocks.size(), false);
 
-    if (FFlag::LuauCodegenPropagateTagsAcrossChains2)
-        function.blockExitTags.resize(function.blocks.size());
+    function.blockExitTags.resize(function.blocks.size());
 
     for (IrBlock& block : function.blocks)
     {
