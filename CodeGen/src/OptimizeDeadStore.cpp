@@ -1160,8 +1160,10 @@ static void markDeadStoresInInst(RemoveDeadStoreState& state, IrBuilder& build, 
 
             StoreRegInfo& regInfo = state.info[reg];
 
-            if (FFlag::LuauCodegenMarkDeadRegisters2)
-                regInfo.ignoreAtExit = false;
+            // A SIMD store defines a new value in the slot that may be needed at a VM exit, matching how upstream
+            // marks every other store. The fork's old LuauCodegenMarkDeadRegisters2 gate was dropped when upstream
+            // shipped this behavior unconditionally during the release/724 sync.
+            regInfo.ignoreAtExit = false;
 
             // Modelled like a partial value store (STORE_DOUBLE) so the exit-sync sinker picks it up: on the
             // hot path the value is raw lane data and the slot stays nil until boxed at a restore point, so it
