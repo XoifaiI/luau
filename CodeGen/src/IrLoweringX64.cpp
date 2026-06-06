@@ -131,6 +131,13 @@ IrLoweringX64::IrLoweringX64(AssemblyBuilderX64& build, ModuleHelpers& helpers, 
             if (inst.cmd == IrCmd::LOAD_SIMD || inst.cmd == IrCmd::LOAD_SIMD256)
                 continue;
 
+            // RETURN is a terminator: it reads the returned slots to copy their values out, but nothing mutates them
+            // afterward, so returning a reused box is safe. Excluding RETURN lets a loop-carried accumulator that is
+            // only returned (not otherwise escaped) reuse its box instead of allocating a fresh one per iteration.
+            // Any intermediate escape (a call arg, a table/upvalue store) is still caught by that instruction below.
+            if (inst.cmd == IrCmd::RETURN)
+                continue;
+
             // A call clobbers its whole frame (from the call base register upward), not just the nominal result
             // registers: the callee leaves stale values there, and those can be SIMD boxes still aliased with the
             // call's result (e.g. `local a,b,c = mk(),mk(),mk()` leaves a copy of c's box in a higher frame slot).
@@ -3428,15 +3435,19 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             simdSlotStored[vmRegOp(OP_A(inst))] = true;
         if (reuse)
         {
-            IrCallWrapperX64 callWrap(regs, build, index);
-            callWrap.addArgument(SizeX64::qword, rState);
-            // luaSimd_storeReuse(L, &slot) returns the box to fill and updates the slot tag/value when it allocates
-            callWrap.addArgument(SizeX64::qword, luauRegAddress(vmRegOp(OP_A(inst))));
-            callWrap.call(qword[rNativeContext + offsetof(NativeContext, luaSimd_storeReuse)]);
+            // The slot is reuse-eligible AND already stored to, so it holds a live, this-function-owned SIMD box.
+            // Inline storeReuse: load the box pointer and overwrite its lanes in place, instead of a per-iteration C
+            // call (which also forces spilling all live vector regs around it) — this is the loop-carried-accumulator
+            // hot path. The high lanes (data[4..7]) are cleared to keep the "a 128-bit value has zero high lanes"
+            // invariant (luai_simdeq/hashsimd compare the full box); for a 128-bit slot the init luaSimd_new already
+            // zeroed them but a subsequent 256-aliased reuse could not, so clear unconditionally here.
+            ScopedRegX64 ptr{regs, SizeX64::qword};
+            build.mov(ptr.reg, luauRegValue(vmRegOp(OP_A(inst))));
+            build.vmovups(xmmword[ptr.reg + offsetof(Simd, data)], regOp(OP_B(inst)));
 
-            RegisterX64 obj = regs.takeReg(rax, kInvalidInstIdx);
-            build.vmovups(xmmword[obj + offsetof(Simd, data)], regOp(OP_B(inst)));
-            regs.freeReg(obj);
+            ScopedRegX64 zero{regs, SizeX64::xmmword};
+            build.vxorpd(zero.reg, zero.reg, zero.reg);
+            build.vmovups(xmmword[ptr.reg + offsetof(Simd, data) + 16], zero.reg);
             break;
         }
 
@@ -3783,14 +3794,11 @@ void IrLoweringX64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             simdSlotStored[vmRegOp(OP_A(inst))] = true;
         if (reuse)
         {
-            IrCallWrapperX64 callWrap(regs, build, index);
-            callWrap.addArgument(SizeX64::qword, rState);
-            callWrap.addArgument(SizeX64::qword, luauRegAddress(vmRegOp(OP_A(inst))));
-            callWrap.call(qword[rNativeContext + offsetof(NativeContext, luaSimd_storeReuse)]);
-
-            RegisterX64 obj = regs.takeReg(rax, kInvalidInstIdx);
-            build.vmovups(ymmword[obj + offsetof(Simd, data)], regOp(OP_B(inst)));
-            regs.freeReg(obj);
+            // Inline storeReuse (see STORE_SIMD): the slot holds a live SIMD box, so overwrite its 8 lanes in place
+            // with no C call. A 256-bit store writes all lanes, so no separate high-lane clear is needed.
+            ScopedRegX64 ptr{regs, SizeX64::qword};
+            build.mov(ptr.reg, luauRegValue(vmRegOp(OP_A(inst))));
+            build.vmovups(ymmword[ptr.reg + offsetof(Simd, data)], regOp(OP_B(inst)));
             break;
         }
 

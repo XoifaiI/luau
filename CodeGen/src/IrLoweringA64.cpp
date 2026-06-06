@@ -383,6 +383,13 @@ IrLoweringA64::IrLoweringA64(AssemblyBuilderA64& build, ModuleHelpers& helpers, 
             if (inst.cmd == IrCmd::LOAD_SIMD || inst.cmd == IrCmd::LOAD_SIMD256)
                 continue;
 
+            // RETURN is a terminator: it reads the returned slots to copy their values out, but nothing mutates them
+            // afterward, so returning a reused box is safe. Excluding RETURN lets a loop-carried accumulator that is
+            // only returned (not otherwise escaped) reuse its box instead of allocating a fresh one per iteration.
+            // Any intermediate escape (a call arg, a table/upvalue store) is still caught by that instruction below.
+            if (inst.cmd == IrCmd::RETURN)
+                continue;
+
             // A call clobbers its whole frame (from the call base register upward), not just the nominal result
             // registers: the callee leaves stale values there, and those can be SIMD boxes still aliased with the
             // call's result (e.g. `local a,b,c = mk(),mk(),mk()` leaves a copy of c's box in a higher frame slot).
@@ -3827,15 +3834,16 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             simdSlotStored[vmRegOp(OP_A(inst))] = true;
         if (reuse)
         {
-            regs.spill(index);
-            build.mov(x0, rState);
-            build.add(x1, rBase, uint16_t(vmRegOp(OP_A(inst)) * sizeof(TValue)));
-            build.ldr(x2, mem(rNativeContext, offsetof(NativeContext, luaSimd_storeReuse)));
-            build.blr(x2);
+            // Inline storeReuse: the slot holds a live, this-function-owned SIMD box, so overwrite its lanes in place
+            // with no C call (and thus no spill of the live vector regs). High lanes (data[4..7]) are cleared to keep
+            // the zero-high invariant that luai_simdeq/hashsimd rely on for 128-bit values.
+            RegisterA64 ptr = regs.allocTemp(KindA64::x);
+            build.ldr(ptr, tempAddr(OP_A(inst), offsetof(TValue, value.gc)));
+            build.str(regOp(OP_B(inst)), mem(ptr, offsetof(Simd, data)));
 
-            RegisterA64 obj = regs.takeReg(x0, kInvalidInstIdx);
-            build.str(regOp(OP_B(inst)), mem(obj, offsetof(Simd, data)));
-            regs.freeReg(obj);
+            RegisterA64 ztmp = regs.allocTemp(KindA64::q);
+            build.eor_16b(ztmp, ztmp, ztmp);
+            build.str(ztmp, mem(ptr, offsetof(Simd, data) + 16));
         }
         else
         {
@@ -4239,16 +4247,11 @@ void IrLoweringA64::lowerInst(IrInst& inst, uint32_t index, const IrBlock& next)
             simdSlotStored[vmRegOp(OP_A(inst))] = true;
         if (reuse)
         {
-            regs.spill(index);
-            build.mov(x0, rState);
-            build.add(x1, rBase, uint16_t(vmRegOp(OP_A(inst)) * sizeof(TValue)));
-            build.ldr(x2, mem(rNativeContext, offsetof(NativeContext, luaSimd_storeReuse)));
-            build.blr(x2);
-
-            RegisterA64 obj = regs.takeReg(x0, kInvalidInstIdx);
-            build.str(regOp(OP_B(inst)), mem(obj, offsetof(Simd, data)));
-            build.str(regOpHi(OP_B(inst)), mem(obj, offsetof(Simd, data) + 16));
-            regs.freeReg(obj);
+            // Inline storeReuse: overwrite both 128-bit halves of the live box in place; no C call, no spill.
+            RegisterA64 ptr = regs.allocTemp(KindA64::x);
+            build.ldr(ptr, tempAddr(OP_A(inst), offsetof(TValue, value.gc)));
+            build.str(regOp(OP_B(inst)), mem(ptr, offsetof(Simd, data)));
+            build.str(regOpHi(OP_B(inst)), mem(ptr, offsetof(Simd, data) + 16));
         }
         else
         {
