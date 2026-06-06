@@ -2193,6 +2193,14 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
         state.invalidateBufferStoreRange(inst, 32);
         break;
     case IrCmd::BUFFER_READSIMD:
+    // Constant splats are pure and frequently reused (e.g. a broadcast constant hoisted across an unrolled body), so
+    // value-number them to fold duplicate broadcasts into a single instruction. The other lane ops below stay uncached.
+    case IrCmd::SPLAT_SIMD:
+    case IrCmd::FSPLAT_SIMD:
+    case IrCmd::SPLAT_SIMD256:
+    case IrCmd::FSPLAT_SIMD256:
+        state.substituteOrRecord(inst, index);
+        break;
     case IrCmd::ADD_SIMD:
     case IrCmd::SUB_SIMD:
     case IrCmd::MUL_SIMD:
@@ -2221,8 +2229,6 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
     case IrCmd::LT_SIMD:
     case IrCmd::GT_SIMD:
     case IrCmd::SELECT_SIMD:
-    case IrCmd::SPLAT_SIMD:
-    case IrCmd::FSPLAT_SIMD:
     case IrCmd::BUFFER_READSIMD256:
     case IrCmd::ADD_SIMD256:
     case IrCmd::MUL_SIMD256:
@@ -2252,8 +2258,6 @@ static void constPropInInst(ConstPropState& state, IrBuilder& build, IrFunction&
     case IrCmd::LT_SIMD256:
     case IrCmd::GT_SIMD256:
     case IrCmd::SELECT_SIMD256:
-    case IrCmd::SPLAT_SIMD256:
-    case IrCmd::FSPLAT_SIMD256:
     case IrCmd::SUM_SIMD:
     case IrCmd::HMIN_SIMD:
     case IrCmd::HMAX_SIMD:
